@@ -1,0 +1,114 @@
+"""Built-in slash command handlers."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+
+from homebot import __version__
+from homebot.bus.events import OutboundMessage
+from homebot.command.router import CommandContext, CommandRouter
+from homebot.utils.helpers import build_status_content
+from homebot.utils.restart import set_restart_notice_to_env
+
+
+async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
+    """Cancel all active tasks for the session."""
+    loop = ctx.loop
+    msg = ctx.msg
+    total = await loop._cancel_active_tasks(msg.session_key)
+    content = f"Stopped {total} task(s)." if total else "No active task to stop."
+    return OutboundMessage(
+        channel=msg.channel, chat_id=msg.chat_id, content=content,
+        metadata=dict(msg.metadata or {})
+    )
+
+
+async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
+    """Restart the process in-place via os.execv."""
+    msg = ctx.msg
+    set_restart_notice_to_env(channel=msg.channel, chat_id=msg.chat_id)
+
+    async def _do_restart():
+        await asyncio.sleep(1)
+        os.execv(sys.executable, [sys.executable, "-m", "homebot"] + sys.argv[1:])
+
+    asyncio.create_task(_do_restart())
+    return OutboundMessage(
+        channel=msg.channel, chat_id=msg.chat_id, content="Restarting...",
+        metadata=dict(msg.metadata or {})
+    )
+
+
+async def cmd_status(ctx: CommandContext) -> OutboundMessage:
+    """Build an outbound status message for a session."""
+    loop = ctx.loop
+    session = ctx.session or loop.sessions.get_or_create(ctx.key)
+    ctx_est = loop._last_usage.get("prompt_tokens", 0)
+    active_tasks = loop._active_tasks.get(ctx.key, [])
+    task_count = sum(1 for t in active_tasks if not t.done())
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=build_status_content(
+            version=__version__, model=loop.model,
+            start_time=loop._start_time, last_usage=loop._last_usage,
+            context_window_tokens=loop.context_window_tokens,
+            session_msg_count=len(session.get_history(max_messages=0)),
+            context_tokens_estimate=ctx_est,
+            active_task_count=task_count,
+            max_completion_tokens=getattr(
+                getattr(loop.provider, "generation", None), "max_tokens", 8192
+            ),
+        ),
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
+async def cmd_new(ctx: CommandContext) -> OutboundMessage:
+    """Stop active task and start a fresh session."""
+    loop = ctx.loop
+    await loop._cancel_active_tasks(ctx.key)
+    session = ctx.session or loop.sessions.get_or_create(ctx.key)
+    session.clear()
+    loop.sessions.save(session)
+    loop.sessions.invalidate(session.key)
+    return OutboundMessage(
+        channel=ctx.msg.channel, chat_id=ctx.msg.chat_id,
+        content="New session started.",
+        metadata=dict(ctx.msg.metadata or {})
+    )
+
+
+async def cmd_help(ctx: CommandContext) -> OutboundMessage:
+    """Return available slash commands."""
+    return OutboundMessage(
+        channel=ctx.msg.channel,
+        chat_id=ctx.msg.chat_id,
+        content=build_help_text(),
+        metadata={**dict(ctx.msg.metadata or {}), "render_as": "text"},
+    )
+
+
+def build_help_text() -> str:
+    """Build canonical help text shared across channels."""
+    lines = [
+        "🐈 homebot commands:",
+        "/new — Stop current task and start a new conversation",
+        "/stop — Stop the current task",
+        "/restart — Restart the bot",
+        "/status — Show bot status",
+        "/help — Show available commands",
+    ]
+    return "\n".join(lines)
+
+
+def register_builtin_commands(router: CommandRouter) -> None:
+    """Register the default set of slash commands."""
+    router.priority("/stop", cmd_stop)
+    router.priority("/restart", cmd_restart)
+    router.priority("/status", cmd_status)
+    router.exact("/new", cmd_new)
+    router.exact("/status", cmd_status)
+    router.exact("/help", cmd_help)

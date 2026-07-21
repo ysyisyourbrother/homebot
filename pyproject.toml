@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homebot-ai"
+version = "0.1.0"
+description = "A lightweight personal AI assistant framework"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "homebot contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+]
+dependencies = [
+    "anthropic>=0.45.0,<1.0.0",
+    "pydantic>=2.12.0,<3.0.0",
+    "pydantic-settings>=2.12.0,<3.0.0",
+    "websockets>=16.0,<17.0",
+    "websocket-client>=1.9.0,<2.0.0",
+    "httpx>=0.28.0,<1.0.0",
+    "oauth-cli-kit>=0.1.3,<1.0.0",
+    "loguru>=0.7.3,<1.0.0",
+    "readability-lxml>=0.8.4,<1.0.0",
+    "croniter>=6.0.0,<7.0.0",
+    "dingtalk-stream>=0.24.0,<1.0.0",
+    "python-telegram-bot[socks]>=22.6,<23.0",
+    "lark-oapi>=1.5.0,<2.0.0",
+    "socksio>=1.0.0,<2.0.0",
+    "python-socketio>=5.16.0,<6.0.0",
+    "msgpack>=1.1.0,<2.0.0",
+    "slack-sdk>=3.39.0,<4.0.0",
+    "slackify-markdown>=0.2.0,<1.0.0",
+    "qq-botpy>=1.2.0,<2.0.0",
+    "python-socks[asyncio]>=2.8.0,<3.0.0",
+    "mcp>=1.26.0,<2.0.0",
+    "json-repair>=0.57.0,<1.0.0",
+    "chardet>=3.0.2,<6.0.0",
+    "openai>=2.8.0",
+    "tiktoken>=0.12.0,<1.0.0",
+    "jinja2>=3.1.0,<4.0.0",
+    "pyyaml>=6.0,<7.0.0",
+    "filelock>=3.25.2",
+    "playwright>=1.55.0,<2.0.0",
+    "tavily-python>=0.7.0,<1.0.0",
+    "dashscope>=1.25.0,<2.0.0",
+    "numpy>=2.0.0,<3.0.0",
+    "sherpa-onnx",
+    "sounddevice",
+]
+
+[project.scripts]
+homebot = "homebot.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/ysyisyourbrother/homebot"
+Repository = "https://github.com/ysyisyourbrother/homebot"
+Issues = "https://github.com/ysyisyourbrother/homebot/issues"
+
+[tool.setuptools.packages.find]
+include = ["homebot*"]
+
+[tool.setuptools.package-data]
+homebot = [
+    "skills/**/*.md",
+    "skills/**/*.py",
+    "templates/**/*.md",
+    "voice/assets/audio/*.wav",
+]
