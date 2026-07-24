@@ -271,9 +271,8 @@ class FeishuConfig(Base):
     enabled: bool = False
     app_id: str = ""
     app_secret: str = ""
-    encrypt_key: str = ""
     verification_token: str = ""
-    allow_from: list[str] = Field(default_factory=list)
+    allow_from: list[str] = Field(default_factory=lambda: ["*"])
     react_emoji: str = "THUMBSUP"
     done_emoji: str | None = None  # Emoji to show when task is completed (e.g., "DONE", "OK")
     tool_hint_prefix: str = "\U0001f527"  # Prefix for inline tool hints (default: 🔧)
@@ -371,7 +370,7 @@ class FeishuChannel(BaseChannel):
             .build()
         )
         builder = lark.EventDispatcherHandler.builder(
-            self.config.encrypt_key or "",
+            "",
             self.config.verification_token or "",
         ).register_p2_im_message_receive_v1(self._on_message_sync)
         builder = self._register_optional_event(

@@ -601,139 +601,215 @@ def _configure_voice_basic_settings(section: dict, defaults) -> None:
                 section[key] = value
 
 
+def _configure_channel(config: Config, name: str, cls, key: str | None = None) -> None:
+    """Configure one chat channel instance."""
+    key = key or name
+    section = getattr(config.channels, key, None)
+    if section is None or not isinstance(section, dict):
+        section = {"enabled": False}
+        setattr(config.channels, key, section)
+
+    display_name = getattr(cls, "display_name", name.capitalize())
+    print(f"\nConfiguring {display_name} ({key}):")
+
+    enabled_cur = "yes" if section.get("enabled", False) else "no"
+    en = input(f"  Enable? (yes/no) [{enabled_cur}]: ").strip().lower()
+    if en in ("yes", "no"):
+        section["enabled"] = en == "yes"
+
+    if not section["enabled"]:
+        print(f"  {display_name} disabled; skipping channel settings.")
+        return
+
+    try:
+        import importlib
+
+        mod = importlib.import_module(f"homebot.channels.{name}")
+        config_name_pascal = cls.__name__.replace("Channel", "Config")
+        config_cls = getattr(mod, config_name_pascal, None)
+    except Exception:
+        config_cls = None
+
+    sensitive_fields = {
+        "api_key", "app_secret", "token", "secret", "signing_secret",
+        "verification_token",
+    }
+    general_fields = {"app_id", "group_policy", "streaming", "allow_from", "proxy"}
+    skip_fields = {
+        "enabled",
+        "accounts",
+        "verification_token",
+        "allow_from",
+        "react_emoji",
+        "done_emoji",
+        "tool_hint_prefix",
+        "reply_to_message",
+        "streaming",
+    }
+
+    if config_cls:
+        model_fields = config_cls.model_fields if hasattr(config_cls, "model_fields") else {}
+        simple_fields = {
+            field_name: field
+            for field_name, field in model_fields.items()
+            if field_name not in skip_fields
+            and str(field.annotation) in (
+                "<class 'str'>", "<class 'int'>", "<class 'float'>", "<class 'bool'>",
+                "str | None", "int | None", "bool | None", "str", "int", "float", "bool",
+                "list[str]", "list",
+            )
+        }
+        field_names = list(simple_fields)
+    else:
+        model_fields = {}
+        field_names = sorted(sensitive_fields | general_fields)
+
+    hints = _FIELD_HINTS.get(name, {})
+    print("  (Configure fields below, Enter to keep current value)")
+    for field_name in field_names:
+        alias = field_name
+        if config_cls and field_name in config_cls.model_fields:
+            alias = config_cls.model_fields[field_name].alias or field_name
+
+        current = section.get(field_name, "")
+        if not current and alias != field_name:
+            current = section.get(alias, "")
+
+        model_default = ""
+        if config_cls and field_name in model_fields:
+            field_info = model_fields[field_name]
+            if field_info.default_factory:
+                try:
+                    default = field_info.default_factory()
+                    if isinstance(default, (str, int, float)) and default != "":
+                        model_default = str(default)
+                except Exception:
+                    pass
+            elif isinstance(field_info.default, (str, int, float)) and field_info.default != "":
+                model_default = str(field_info.default)
+
+        hint = hints.get(field_name, "")
+        label = f"{field_name} ({hint})" if hint else field_name
+        value = input(f"  {label} {_show_current(current, default=model_default)}: ").strip()
+        if not value:
+            continue
+        if isinstance(current, bool):
+            section[alias] = value.lower() in ("yes", "true", "1", "y")
+        elif isinstance(current, int):
+            try:
+                section[alias] = int(value)
+            except ValueError:
+                print("    Expected integer, keeping current value")
+        elif isinstance(current, list) or (
+            config_cls
+            and field_name in model_fields
+            and "list" in str(model_fields[field_name].annotation)
+        ):
+            section[alias] = [item.strip() for item in value.split(",") if item.strip()]
+        else:
+            section[alias] = value
+        if alias != field_name and field_name in section:
+            del section[field_name]
+
+
+def _configure_feishu_accounts(config: Config, cls) -> None:
+    """Manage independent Feishu bot channel configurations."""
+    while True:
+        accounts: list[str] = []
+        if isinstance(getattr(config.channels, "feishu", None), dict):
+            accounts.append("feishu")
+        extra = getattr(config.channels, "model_extra", None) or {}
+        accounts.extend(
+            sorted(key for key, section in extra.items() if key.startswith("feishu_") and isinstance(section, dict))
+        )
+
+        print("\n--- Feishu Accounts ---")
+        if accounts:
+            for index, key in enumerate(accounts, 1):
+                section = getattr(config.channels, key)
+                label = "Default" if key == "feishu" else key.removeprefix("feishu_")
+                status = "enabled" if section.get("enabled", False) else "disabled"
+                print(f"  [{index}] {label} ({key}, {status})")
+        else:
+            print("  No Feishu accounts configured.")
+        print(f"  [{len(accounts) + 1}] Add account")
+        print("  [0] Back")
+
+        choice = input(f"Select account [0-{len(accounts) + 1}]: ").strip()
+        if not choice or choice == "0":
+            return
+        if choice == str(len(accounts) + 1):
+            account_name = input("  Account name: ").strip().lower()
+            account_id = "".join(char if char.isalnum() else "_" for char in account_name).strip("_")
+            if not account_id:
+                print("  Account name is required.")
+                continue
+            key = f"feishu_{account_id}"
+            if getattr(config.channels, key, None) is not None:
+                print(f"  Account already exists: {key}")
+                continue
+            setattr(config.channels, key, {"enabled": False})
+            _configure_channel(config, "feishu", cls, key)
+            continue
+
+        try:
+            key = accounts[int(choice) - 1]
+        except (ValueError, IndexError):
+            print(f"Invalid choice: {choice}")
+            continue
+
+        action = input("  [1] Configure [2] Delete [0] Cancel: ").strip()
+        if action == "1":
+            _configure_channel(config, "feishu", cls, key)
+        elif action == "2":
+            if input(f"  Delete {key}? (yes/no) [no]: ").strip().lower() == "yes":
+                (getattr(config.channels, "model_extra", None) or {}).pop(key, None)
+                print(f"  Deleted {key}.")
+        elif action != "0":
+            print(f"Invalid choice: {action}")
+
+
 def _configure_channels(config: Config) -> None:
     """Configure chat channels. Uses channel auto-discovery for config models."""
     from homebot.channels.registry import discover_all
 
     all_channels = discover_all()
-    # Show common channels the user may want to configure
-    channel_list = [(n, c) for n, c in all_channels.items() if n in ("feishu", "telegram")]
+    channel_list = [(name, cls) for name, cls in all_channels.items() if name in ("feishu", "telegram")]
     if not channel_list:
         print("No channels to configure.")
         return
 
     while True:
         print("\n--- Chat Channels ---")
-        for i, (name, cls) in enumerate(channel_list, 1):
-            section = getattr(config.channels, name, None)
-            if section is None:
-                section = {}
-            enabled = section.get("enabled", False) if isinstance(section, dict) else getattr(section, "enabled", False)
+        for index, (name, cls) in enumerate(channel_list, 1):
+            if name == "feishu":
+                extra = getattr(config.channels, "model_extra", None) or {}
+                account_count = sum(
+                    1
+                    for key, section in extra.items()
+                    if (key == "feishu" or key.startswith("feishu_")) and isinstance(section, dict)
+                )
+                print(f"  [{index}] {getattr(cls, 'display_name', 'Feishu')} ({account_count} accounts)")
+                continue
+            section = getattr(config.channels, name, None) or {}
+            enabled = section.get("enabled", False) if isinstance(section, dict) else False
             status = "*" if enabled else " "
-            display_name = getattr(cls, "display_name", name.capitalize())
-            print(f"  [{i}] [{status}] {display_name} ({name})")
+            print(f"  [{index}] [{status}] {getattr(cls, 'display_name', name.capitalize())} ({name})")
         print("  [0] Back")
 
         choice = input("Select channel to configure [0-{}, Enter to skip]: ".format(len(channel_list))).strip()
         if not choice or choice == "0":
-            break
-
+            return
         try:
-            idx = int(choice) - 1
-            name, cls = channel_list[idx]
+            name, cls = channel_list[int(choice) - 1]
         except (ValueError, IndexError):
             print(f"Invalid choice: {choice}")
             continue
 
-        # Get or create channel config dict
-        section = getattr(config.channels, name, None)
-        if section is None or not isinstance(section, dict):
-            section = {"enabled": False}
-            setattr(config.channels, name, section)
-
-        display_name = getattr(cls, "display_name", name.capitalize())
-
-        # Try to find the channel's config model for field info
-        try:
-            import importlib
-            mod = importlib.import_module(f"homebot.channels.{name}")
-            config_name_pascal = cls.__name__.replace("Channel", "Config")
-            config_cls = getattr(mod, config_name_pascal, None)
-        except Exception:
-            config_cls = None
-
-        print(f"\nConfiguring {display_name}:")
-
-        enabled_cur = "yes" if section.get("enabled", False) else "no"
-        en = input(f"  Enable? (yes/no) [{enabled_cur}]: ").strip().lower()
-        if en in ("yes", "no"):
-            section["enabled"] = en == "yes"
-
-        # Ask for common fields
-        sensitive_fields = {"api_key", "app_secret", "token", "secret", "encrypt_key", "signing_secret", "verification_token"}
-        general_fields = {"app_id", "group_policy", "streaming", "allow_from", "proxy"}
-        skip_fields = {"enabled", "accounts"}  # complex nested fields
-
-        if config_cls:
-            model_fields = config_cls.model_fields if hasattr(config_cls, "model_fields") else {}
-            # Show simple string/bool/int fields only
-            simple_fields = {
-                k: v for k, v in model_fields.items()
-                if k not in skip_fields and str(v.annotation) in (
-                    "<class 'str'>", "<class 'int'>", "<class 'float'>", "<class 'bool'>",
-                    "str | None", "int | None", "bool | None",
-                    "str", "int", "float", "bool",
-                    "list[str]", "list",
-                )
-            }
-            field_names = list(simple_fields.keys())
+        if name == "feishu":
+            _configure_feishu_accounts(config, cls)
         else:
-            field_names = sorted(sensitive_fields | general_fields)
-
-        hints = _FIELD_HINTS.get(name, {})
-        print(f"  (Configure fields below, Enter to keep current value)")
-        for fname in field_names:
-            # Resolve the JSON key (camelCase alias) for this field
-            alias = fname
-            if config_cls and fname in config_cls.model_fields:
-                alias = config_cls.model_fields[fname].alias or fname
-
-            # Look up current value in both snake_case and camelCase
-            current = section.get(fname, "")
-            if not current and alias != fname:
-                current = section.get(alias, "")
-
-            # Look up model default so we show it instead of "[not set]"
-            model_default = ""
-            if config_cls and fname in model_fields:
-                field_info = model_fields[fname]
-                if field_info.default_factory:
-                    try:
-                        df = field_info.default_factory()
-                        if isinstance(df, (str, int, float)) and df != "":
-                            model_default = str(df)
-                    except Exception:
-                        pass
-                elif isinstance(field_info.default, (str, int, float)) and field_info.default != "":
-                    model_default = str(field_info.default)
-            is_sens = fname in sensitive_fields or "key" in fname or "secret" in fname or "token" in fname
-            cur_display = _show_current(current, default=model_default)
-            hint = hints.get(fname, "")
-            label = f"{fname} ({hint})" if hint else fname
-            val = input(f"  {label} {cur_display}: ").strip()
-            if val:
-                # Handle bool fields
-                if isinstance(current, bool):
-                    section[alias] = val.lower() in ("yes", "true", "1", "y")
-                elif isinstance(current, int):
-                    try:
-                        section[alias] = int(val)
-                    except ValueError:
-                        print(f"    Expected integer, keeping current value")
-                elif isinstance(current, list) or (
-                    config_cls
-                    and fname in model_fields
-                    and "list" in str(model_fields[fname].annotation)
-                ):
-                    section[alias] = [w.strip() for w in val.split(",") if w.strip()]
-                else:
-                    section[alias] = val
-                # Clean up snake_case key if it differs from alias
-                if alias != fname and fname in section:
-                    del section[fname]
-
-        if name == "voice":
-            _configure_voice_audio_devices(section)
+            _configure_channel(config, name, cls)
 
 
 def _discover_speaker_profiles(voice_dir: Path, existing_profiles: list[dict] | None = None) -> list[dict]:
