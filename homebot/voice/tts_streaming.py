@@ -10,6 +10,21 @@ from dashscope.audio.tts_v2 import AudioFormat, ResultCallback, SpeechSynthesize
 from loguru import logger
 
 
+def _resolve_output_device(name: str | None) -> str | None:
+    """Resolve an output device name, falling back to system default if unavailable."""
+    if not name:
+        return None
+    try:
+        sd.query_devices(device=name)
+    except Exception:
+        logger.warning(
+            "StreamingTTS: configured output device '{}' not found, falling back to system default",
+            name,
+        )
+        return None
+    return name
+
+
 class StreamingTTS:
     """DashScope CosyVoice streaming TTS with real-time audio playback.
 
@@ -52,11 +67,12 @@ class StreamingTTS:
         self._draining = False
 
         if self._stream is None:
+            device = _resolve_output_device(self._output_device)
             self._stream = sd.OutputStream(
                 samplerate=self._sample_rate,
                 channels=1,
                 dtype="int16",
-                device=self._output_device,
+                device=device,
                 callback=self._audio_callback,
                 blocksize=1024,
             )

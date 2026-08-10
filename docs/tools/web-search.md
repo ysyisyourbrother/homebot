@@ -2,14 +2,25 @@
 
 Web Search Tool 让 Agent 能够搜索互联网并获取实时信息。
 
-## 配置
+## 配置方式
 
-目前支持 Tavily 作为搜索引擎后端：
+Web Search 目前接入 **Tavily** 作为唯一搜索后端。推荐使用配置命令写入 API Key：
+
+```bash
+python -m homebot config
+```
+
+在主菜单选择 **[4] Tools Settings**，再选择 **[2] Web Search**。这里可以单独完成 Web Search 的启用/停用和 Tavily API Key 配置，不需要重新配置其他工具。
+
+配置完成后返回上一层菜单，再返回主菜单时会自动写入 Homebot 配置文件（默认是 `~/.homebot/config.json`）。
+
+也可以直接编辑配置文件：
 
 ```json
 {
   "tools": {
     "web_search": {
+      "enable": true,
       "provider": "tavily",
       "api_key": "tvly-your-tavily-key"
     }
@@ -19,8 +30,11 @@ Web Search Tool 让 Agent 能够搜索互联网并获取实时信息。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `provider` | string | `"tavily"` | 搜索后端 |
+| `enable` | boolean | `false` | 是否启用 Web Search |
+| `provider` | string | `"tavily"` | 搜索后端，目前仅支持 Tavily |
 | `api_key` | string | - | Tavily API Key |
+
+运行时只有在 `enable` 为 `true` 且已配置 `api_key` 时，Homebot 才会注册 Web Search Tool。
 
 ## 获取 API Key
 

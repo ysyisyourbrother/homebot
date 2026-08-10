@@ -369,11 +369,12 @@ class VoiceChannel(BaseChannel):
         # Start audio stream in a background thread (PortAudio callback runs in C thread)
         import sounddevice as sd
 
+        input_device = _resolve_device(self.config.input_device, "input")
         self._stream = sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=1,
             dtype="float32",
-            device=self.config.input_device or None,
+            device=input_device,
             callback=self._audio_callback,
             blocksize=BLOCK_SIZE,
         )
@@ -446,7 +447,7 @@ class VoiceChannel(BaseChannel):
                 sd.play,
                 chunk,
                 sr,
-                device=self.config.output_device or None,
+                device=_resolve_device(self.config.output_device, "output"),
                 blocking=True,
             )
         except Exception as e:
@@ -801,7 +802,7 @@ class VoiceChannel(BaseChannel):
                 sd.play,
                 data,
                 sample_rate,
-                device=self.config.output_device or None,
+                device=_resolve_device(self.config.output_device, "output"),
                 blocking=True,
             )
         except Exception as e:
@@ -820,3 +821,19 @@ def _check_dependencies() -> None:
         logger.warning(
             "Voice: missing dependencies: {}. Install with pip.", ", ".join(missing)
         )
+
+
+def _resolve_device(name: str | None, kind: str) -> str | None:
+    """Resolve a sounddevice device name, falling back to system default if unavailable."""
+    if not name:
+        return None
+    import sounddevice as sd
+    try:
+        sd.query_devices(device=name)
+    except Exception:
+        logger.warning(
+            "Voice: configured {} device '{}' not found, falling back to system default",
+            kind, name,
+        )
+        return None
+    return name

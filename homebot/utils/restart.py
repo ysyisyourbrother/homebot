@@ -27,7 +27,7 @@ def format_restart_completed_message(started_at_raw: str) -> str:
             elapsed_suffix = f" in {elapsed_s:.1f}s"
         except ValueError:
             pass
-    return f"Restart completed{elapsed_suffix}."
+    return f"重启完成{elapsed_suffix}。"
 
 
 def set_restart_notice_to_env(*, channel: str, chat_id: str) -> None:

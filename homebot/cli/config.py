@@ -1094,82 +1094,109 @@ def _configure_agent_settings(config: Config) -> None:
 
 
 def _configure_tools(config: Config) -> None:
-    t = config.tools
-    print("\n--- Tools Settings ---")
+    while True:
+        print("\n--- Tools Settings ---")
+        print("  [1] Web Fetch")
+        print("  [2] Web Search")
+        print("  [3] Shell Exec")
+        print("  [4] Browser")
+        print("  [0] Back")
 
-    cur = "yes" if t.web.enable else "no"
+        choice = input("Choice [0-4]: ").strip()
+        if choice == "0" or not choice:
+            return
+        if choice == "1":
+            _configure_web_fetch(config)
+        elif choice == "2":
+            _configure_web_search(config)
+        elif choice == "3":
+            _configure_exec(config)
+        elif choice == "4":
+            _configure_browser(config)
+        else:
+            print(f"Invalid choice: {choice}")
+
+
+def _configure_web_fetch(config: Config) -> None:
+    web = config.tools.web
+    cur = "yes" if web.enable else "no"
     val = input(f"  Web Fetch (yes/no) [{cur}]: ").strip().lower()
     if val in ("yes", "no"):
-        t.web.enable = val == "yes"
+        web.enable = val == "yes"
 
-    search = t.web_search
+
+def _configure_web_search(config: Config) -> None:
+    search = config.tools.web_search
     cur = "yes" if search.enable else "no"
     val = input(f"  Web Search (yes/no) [{cur}]: ").strip().lower()
     if val in ("yes", "no"):
         search.enable = val == "yes"
-    if search.enable:
-        print("    Provider: Tavily")
-        val = input(f"    Tavily API Key {_show_current(search.api_key)}: ").strip()
-        if val:
-            search.api_key = val
+    print("  Provider: Tavily")
+    val = input(f"  Tavily API Key {_show_current(search.api_key)}: ").strip()
+    if val:
+        search.api_key = val
 
-    cur = "yes" if t.exec.enable else "no"
+
+def _configure_exec(config: Config) -> None:
+    shell = config.tools.exec
+    cur = "yes" if shell.enable else "no"
     val = input(f"  Shell Exec (yes/no) [{cur}]: ").strip().lower()
     if val in ("yes", "no"):
-        t.exec.enable = val == "yes"
+        shell.enable = val == "yes"
 
-    cur = "yes" if t.browser.enable else "no"
+
+def _configure_browser(config: Config) -> None:
+    browser = config.tools.browser
+    cur = "yes" if browser.enable else "no"
     val = input(f"  Browser (yes/no) [{cur}]: ").strip().lower()
     if val in ("yes", "no"):
-        t.browser.enable = val == "yes"
+        browser.enable = val == "yes"
 
-    cur = _show_current(t.browser.executable_path)
-    val = input(f"    Browser Executable Path {cur}: ").strip()
+    cur = _show_current(browser.executable_path)
+    val = input(f"  Browser Executable Path {cur}: ").strip()
     if val:
-        t.browser.executable_path = val
+        browser.executable_path = val
 
-    cur = _show_current(t.browser.user_data_dir)
-    val = input(f"    User Data Directory {cur}: ").strip()
+    cur = _show_current(browser.user_data_dir)
+    val = input(f"  User Data Directory {cur}: ").strip()
     if val:
-        t.browser.user_data_dir = val
+        browser.user_data_dir = val
 
-    # Let user choose which Homebot Chrome profile to use
-    resolved_dir = Path(t.browser.user_data_dir).expanduser()
+    resolved_dir = Path(browser.user_data_dir).expanduser()
     profiles = _list_browser_profiles(resolved_dir)
-    print(f"    Homebot Chrome profiles found under {resolved_dir}:")
-    print(f"      [0] Homebot Chrome \"Homebot\" profile")
+    print(f"  Homebot Chrome profiles found under {resolved_dir}:")
+    print('    [0] Homebot Chrome "Homebot" profile')
     for i, (name, size) in enumerate(profiles, 1):
-        print(f"      [{i}] {name} ({size})")
+        print(f"    [{i}] {name} ({size})")
+    cur_profile = browser.profile or "Homebot"
     if profiles:
-        cur_profile = t.browser.profile or "Homebot"
-        profile_prompt = f"    Select profile number [current: {cur_profile}]: "
+        profile_prompt = f"  Select profile number [current: {cur_profile}]: "
     else:
-        cur_profile = t.browser.profile or "Homebot"
-        profile_prompt = f"    Profile name (subdirectory) [{cur_profile}]: "
+        profile_prompt = f"  Profile name (subdirectory) [{cur_profile}]: "
     val = input(profile_prompt).strip()
     if val:
         try:
             idx = int(val)
             if idx == 0:
-                t.browser.profile = "Homebot"
+                browser.profile = "Homebot"
             elif 1 <= idx <= len(profiles):
-                t.browser.profile = profiles[idx - 1][0]
+                browser.profile = profiles[idx - 1][0]
             else:
-                print(f"    Invalid profile number, keeping current value")
+                print("  Invalid profile number, keeping current value")
         except ValueError:
-            t.browser.profile = val
+            browser.profile = val
 
-    refresh = t.browser.session_refresh
+    refresh = browser.session_refresh
     current_urls = ", ".join(refresh.urls) or "none"
     val = input(
-        f"    Session Refresh URLs (comma-separated, 'none' to clear) [{current_urls}]: "
+        f"  Session Refresh URLs (comma-separated, 'none' to clear) [{current_urls}]: "
     ).strip()
     if val.lower() == "none":
         refresh.urls = []
     elif val:
         refresh.urls = [url.strip() for url in val.split(",") if url.strip()]
 
-    val = input(f"    Session Refresh Interval Hours [{refresh.interval_hours}]: ").strip()
+    val = input(f"  Session Refresh Interval Hours [{refresh.interval_hours}]: ").strip()
     if val:
         try:
             interval_hours = int(val)

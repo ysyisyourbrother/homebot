@@ -18,7 +18,7 @@ Browser Tool 仅支持安装了 Google Chrome 的 macOS。通过 `./install_env.
 python -m homebot config
 ```
 
-配置向导会显示配置文件位置。选择 **[4] Tools Settings**，然后依次完成 Browser 的配置。
+配置向导会显示配置文件位置。选择 **[4] Tools Settings**，再选择 **[4] Browser**，然后完成 Browser 的配置。
 
 ### 使用独立浏览器资料目录
 

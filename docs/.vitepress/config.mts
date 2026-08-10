@@ -44,6 +44,10 @@ export default defineConfig({
           items: [
             { text: "工具概览", link: "/tools/index.html" },
             { text: "Browser 浏览器", link: "/tools/browser.html" },
+            { text: "Web Search 网页搜索", link: "/tools/web-search.html" },
+            { text: "Web Fetch 网页抓取", link: "/tools/web-fetch.html" },
+            { text: "Shell 命令执行", link: "/tools/shell.html" },
+            { text: "Filesystem 文件系统", link: "/tools/filesystem.html" },
           ],
         },
         {

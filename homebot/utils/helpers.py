@@ -455,17 +455,17 @@ def build_status_content(
         else str(context_tokens_estimate)
     )
     ctx_total_str = f"{ctx_total // 1000}k" if ctx_total > 0 else "n/a"
-    token_line = f"\U0001f4ca Tokens: {last_in} in / {last_out} out"
+    token_line = f"\U0001f4ca Tokens: {last_in} \u5165 / {last_out} \u51fa"
     if cached and last_in:
-        token_line += f" ({cached * 100 // last_in}% cached)"
+        token_line += f" ({cached * 100 // last_in}% \u7f13\u5b58)"
     lines = [
         f"\U0001f408 homebot v{version}",
-        f"\U0001f9e0 Model: {model}",
+        f"\U0001f9e0 \u6a21\u578b: {model}",
         token_line,
-        f"\U0001f4da Context: {ctx_used_str}/{ctx_total_str} ({ctx_pct}% of input budget)",
-        f"\U0001f4ac Session: {session_msg_count} messages",
-        f"\u23f1 Uptime: {uptime}",
-        f"\u26a1 Tasks: {active_task_count} active",
+        f"\U0001f4da \u4e0a\u4e0b\u6587: {ctx_used_str}/{ctx_total_str} ({ctx_pct}% \u8f93\u5165\u9884\u7b97)",
+        f"\U0001f4ac \u4f1a\u8bdd: {session_msg_count} \u6761\u6d88\u606f",
+        f"\u23f1 \u8fd0\u884c\u65f6\u95f4: {uptime}",
+        f"\u26a1 \u4efb\u52a1: {active_task_count} \u6d3b\u8dc3",
     ]
     return "\n".join(lines)
 

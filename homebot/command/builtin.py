@@ -18,7 +18,7 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
     loop = ctx.loop
     msg = ctx.msg
     total = await loop._cancel_active_tasks(msg.session_key)
-    content = f"Stopped {total} task(s)." if total else "No active task to stop."
+    content = f"已终止 {total} 个任务。" if total else "暂无运行中的任务。"
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content=content,
         metadata=dict(msg.metadata or {})
@@ -36,7 +36,7 @@ async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
 
     asyncio.create_task(_do_restart())
     return OutboundMessage(
-        channel=msg.channel, chat_id=msg.chat_id, content="Restarting...",
+        channel=msg.channel, chat_id=msg.chat_id, content="正在重启…",
         metadata=dict(msg.metadata or {})
     )
 
@@ -76,7 +76,7 @@ async def cmd_new(ctx: CommandContext) -> OutboundMessage:
     loop.sessions.invalidate(session.key)
     return OutboundMessage(
         channel=ctx.msg.channel, chat_id=ctx.msg.chat_id,
-        content="New session started.",
+        content="已开启新会话。",
         metadata=dict(ctx.msg.metadata or {})
     )
 
@@ -94,12 +94,12 @@ async def cmd_help(ctx: CommandContext) -> OutboundMessage:
 def build_help_text() -> str:
     """Build canonical help text shared across channels."""
     lines = [
-        "🐈 homebot commands:",
-        "/new — Stop current task and start a new conversation",
-        "/stop — Stop the current task",
-        "/restart — Restart the bot",
-        "/status — Show bot status",
-        "/help — Show available commands",
+        "🐈 homebot 命令：",
+        "/new — 终止当前任务并开启新会话",
+        "/stop — 终止当前任务",
+        "/restart — 重启 homebot",
+        "/status — 查看运行状态",
+        "/help — 显示可用命令",
     ]
     return "\n".join(lines)
 

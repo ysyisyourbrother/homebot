@@ -82,3 +82,11 @@ Thanks to everyone who has contributed to Homebot.
 <a href="https://github.com/ysyisyourbrother/homebot/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=ysyisyourbrother/homebot" alt="Homebot contributors">
 </a>
+
+## References & Acknowledgements
+
+Homebot draws inspiration from the following open-source projects. We sincerely thank their authors and communities for making their work available.
+
+- [nanobot](https://github.com/HKUDS/nanobot) — Homebot's early implementation was informed by nanobot's elegant agent design, which helped shape its initial direction.
+- [OpenClaw](https://github.com/openclaw/openclaw)
+- [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
