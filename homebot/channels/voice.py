@@ -414,6 +414,8 @@ class VoiceChannel(BaseChannel):
 
     async def send(self, msg: OutboundMessage) -> None:
         """Speak a non-streaming outbound message via TTS."""
+        if msg.metadata.get("_progress"):
+            return
         if not self._tts or not msg.content:
             return
 

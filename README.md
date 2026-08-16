@@ -5,6 +5,10 @@
 </p>
 
 <p align="center">
+  📄 Technical Report: <a href="https://arxiv.org/pdf/2608.02254">Homebot: A Personal AI Agent for Conversational Home Assistance and Automation</a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/python-%E2%89%A53.11-blue" alt="Python">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
   <a href="https://ysyisyourbrother.github.io/homebot/"><img src="https://img.shields.io/badge/Docs-Homebot-blue?style=flat&logo=readthedocs&logoColor=white" alt="Docs"></a>
@@ -92,3 +96,16 @@ Homebot draws inspiration from the following open-source projects. We sincerely 
 - [nanobot](https://github.com/HKUDS/nanobot) — Homebot's early implementation was informed by nanobot's elegant agent design, which helped shape its initial direction.
 - [OpenClaw](https://github.com/openclaw/openclaw)
 - [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+
+## Citation
+
+If you find Homebot useful in your research, please consider citing:
+
+```bibtex
+@article{ye2026homebot,
+  title={Homebot: A Personal AI Agent for Conversational Home Assistance and Automation},
+  author={Ye, Shengyuan and Zhang, Yixin and Liang, Han and Zeng, Liekang and Du, Jiangsu and Yuan, Mu},
+  journal={arXiv preprint arXiv:2608.02254},
+  year={2026}
+}
+```
