@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img src="images/logo_2.png" alt="Homebot" width="560">
 </p>
@@ -26,7 +28,7 @@ Homebot is a locally deployable personal AI agent designed for practical home au
 
 ## Quick Start
 
-Requirements: Python 3.11 or later.
+Requirements: Python 3.11 or later. macOS is currently supported, with Windows support in progress.
 
 ### 1. Clone the repository
 
