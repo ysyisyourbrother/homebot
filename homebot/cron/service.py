@@ -1,7 +1,6 @@
 """Cron service for scheduling agent tasks."""
 
 import asyncio
-import fcntl
 import json
 import time
 import uuid
@@ -9,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Literal
 
+from filelock import FileLock
 from loguru import logger
 
 from homebot.cron.types import CronJob, CronJobState, CronPayload, CronRunRecord, CronSchedule, CronStore
@@ -255,23 +255,21 @@ class CronService:
 
         lock_path = self.store_path.parent / "action.lock"
         actions: list[dict] = []
-        with open(lock_path, "w") as lf:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-            try:
-                content = action_path.read_text(encoding="utf-8").strip()
-                if not content:
-                    return 0
-                for line in content.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        actions.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        logger.warning("Cron: malformed action line in action.jsonl")
-                action_path.write_text("", encoding="utf-8")
-            finally:
-                fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+        # filelock picks the right primitive per platform (flock on POSIX,
+        # msvcrt.locking on Windows), so the same code works on both.
+        with FileLock(str(lock_path)):
+            content = action_path.read_text(encoding="utf-8").strip()
+            if not content:
+                return 0
+            for line in content.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    actions.append(json.loads(line))
+                except json.JSONDecodeError:
+                    logger.warning("Cron: malformed action line in action.jsonl")
+            action_path.write_text("", encoding="utf-8")
 
         if not actions:
             return 0

@@ -1,5 +1,6 @@
 ## 运行环境
 {{ runtime }}
+Python 解释器：`{{ python_path }}`（技能脚本与 `python` 命令都用它）
 
 ## 工作区
 你的工作区位于：{{ workspace_path }}

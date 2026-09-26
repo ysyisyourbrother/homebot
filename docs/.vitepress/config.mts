@@ -34,6 +34,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { text: "安装与启动", link: "/guide/quick-start.html" },
+            { text: "Windows 部署指南", link: "/guide/deployment-windows.html" },
             { text: "语音唤醒与对话", link: "/guide/voice-interaction.html" },
           ],
         },

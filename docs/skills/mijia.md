@@ -59,10 +59,19 @@ docker run -d \
 运行项目内置的米家驱动，读取 Home Assistant 中已接入的设备，并生成 homebot 使用的 Skill：
 
 ```bash
-python3 homebot/skills/mijia/driver.py \
+# macOS / Linux
+python homebot/skills/mijia/driver.py \
   --config ~/.homebot/workspace/skills/mijia/config.json \
   build-skill \
   --output ~/.homebot/workspace/skills/mijia/SKILL.md
+```
+
+```powershell
+# Windows PowerShell（用安装 homebot 的同一个解释器）
+.\.venv\Scripts\python.exe homebot\skills\mijia\driver.py `
+  --config $env:USERPROFILE\.homebot\workspace\skills\mijia\config.json `
+  build-skill `
+  --output $env:USERPROFILE\.homebot\workspace\skills\mijia\SKILL.md
 ```
 
 生成后的文件位于：

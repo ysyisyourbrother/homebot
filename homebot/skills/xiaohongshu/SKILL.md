@@ -24,7 +24,7 @@ metadata: {"homebot":{"requires":{"bins":["opencli"]}}}
 ## 查询并归纳小红书内容
 
 ```bash
-python3 <SCRIPT> search "<关键词>" --limit <数量>
+python <SCRIPT> search "<关键词>" --limit <数量>
 ```
 
 - 默认只读取排名第一篇笔记；**除非用户明确说出数量，否则绝对不要传 `--limit`**，让脚本使用默认值。用户明确要求“综合多篇”时传 `--limit 3`；通常最多使用 5，10 篇仅限用户明确要求。
@@ -36,7 +36,7 @@ python3 <SCRIPT> search "<关键词>" --limit <数量>
 ## 向点点提问
 
 ```bash
-python3 <SCRIPT> ask "<问题>" --timeout 90 --source-limit 10
+python <SCRIPT> ask "<问题>" --timeout 90 --source-limit 10
 ```
 
 - `--timeout` 是 OpenCLI 等待点点回答的秒数；`exec` 超时必须高于它，建议 120 秒。

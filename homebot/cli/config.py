@@ -361,6 +361,38 @@ def _configure_provider(config: Config) -> None:
         p.api_base = base
 
 
+# Sample rates homebot actually asks for. Keep in sync with
+# homebot/channels/voice.py (microphone) and the DashScope TTS stream (output).
+_VOICE_INPUT_RATE = 16000
+_VOICE_OUTPUT_RATE = 24000
+
+
+def _probe_audio_device(sd, kind: str, selector: str, samplerate: int) -> str | None:
+    """Open *selector* briefly and return a warning, or None when it works.
+
+    Windows exposes one physical device through several host APIs (MME,
+    DirectSound, WASAPI, WDM-KS) and they do not all accept the sample rates
+    homebot needs, so a device that looks fine in the list can still fail at
+    runtime. Catching it here - while the user is watching - is far better than
+    the silent fallback to the system default that would otherwise happen.
+    """
+    stream_class = sd.InputStream if kind == "input" else sd.OutputStream
+    stream = None
+    try:
+        stream = stream_class(samplerate=samplerate, channels=1, dtype="float32", device=selector)
+        stream.start()
+        return None
+    except Exception as exc:
+        return f"cannot open at {samplerate} Hz ({exc}); try another host API entry"
+    finally:
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:
+                pass
+
+
 def _configure_voice_audio_devices(section: dict) -> None:
     """Let the user select the audio devices used only by the voice channel."""
     try:
@@ -369,22 +401,23 @@ def _configure_voice_audio_devices(section: dict) -> None:
         print("  sounddevice is not installed; audio devices cannot be listed.")
         return
 
-    def select(label: str, channel_key: str) -> None:
-        devices = [
-            device["name"]
+    def select(label: str, kind: str, samplerate: int) -> None:
+        rate_key = "max_input_channels" if kind == "input" else "max_output_channels"
+        entries = [
+            (device["name"], sd.query_hostapis(device["hostapi"])["name"])
             for device in sd.query_devices()
-            if device[channel_key] > 0
+            if device[rate_key] > 0
         ]
-        if not devices:
+        if not entries:
             print(f"  No {label.lower()} devices found.")
             return
 
-        field = "inputDevice" if channel_key == "max_input_channels" else "outputDevice"
-        current = section.get(field, section.get(field[0].lower() + field[1:], ""))
+        field = "inputDevice" if kind == "input" else "outputDevice"
+        current = section.get(field, "")
         print(f"\n  {label} device {_show_current(current, 'system default')}")
         print("    [0] System default")
-        for index, name in enumerate(devices, 1):
-            print(f"    [{index}] {name}")
+        for index, (name, host) in enumerate(entries, 1):
+            print(f"    [{index}] {name}  [{host}]")
 
         choice = input(f"  Select {label.lower()} device [Enter to keep]: ").strip()
         if not choice:
@@ -396,14 +429,27 @@ def _configure_voice_audio_devices(section: dict) -> None:
             return
         if index == 0:
             section[field] = ""
-        elif 1 <= index <= len(devices):
-            section[field] = devices[index - 1]
-        else:
+            return
+        if not 1 <= index <= len(entries):
             print("    Invalid device number, keeping current value")
+            return
+
+        name, host = entries[index - 1]
+        # Store "name, host API". A bare name is ambiguous wherever the same
+        # hardware is enumerated by several host APIs, and sounddevice then
+        # refuses to resolve it.
+        selector = f"{name}, {host}"
+        warning = _probe_audio_device(sd, kind, selector, samplerate)
+        if warning:
+            print(f"    Warning: {warning}")
+        section[field] = selector
 
     print("  (These settings only affect Homebot voice; system defaults stay unchanged.)")
-    select("Input", "max_input_channels")
-    select("Output", "max_output_channels")
+    print("  Note: a Windows device is listed once per host API. WASAPI is usually")
+    print("        the lowest-latency choice; DirectSound/MME resample and accept")
+    print("        more sample rates.")
+    select("Input", "input", _VOICE_INPUT_RATE)
+    select("Output", "output", _VOICE_OUTPUT_RATE)
 
 
 def _finalize_voice_config(config: Config, previous_voice_section: dict | None = None) -> bool:

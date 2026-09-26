@@ -114,7 +114,7 @@ class CronSystemJobTest(unittest.IsolatedAsyncioTestCase):
     async def test_browser_refresh_registers_three_day_native_job(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service = self.make_service(Path(directory) / "jobs.json")
-            browser = BrowserTool(user_data_dir="/tmp/homebot-browser-test")
+            browser = BrowserTool(user_data_dir=str(Path(directory) / "browser"))
             browser.refresh_sessions = AsyncMock()
 
             with patch("homebot.cron.service._now_ms", return_value=1000):
@@ -155,7 +155,7 @@ class CronSystemJobTest(unittest.IsolatedAsyncioTestCase):
             )
             on_job = AsyncMock()
             service = self.make_service(path, on_job=on_job)
-            browser = BrowserTool(user_data_dir="/tmp/homebot-browser-test")
+            browser = BrowserTool(user_data_dir=str(Path(directory) / "browser"))
             browser.refresh_sessions = AsyncMock()
             register_browser_refresh(service, browser, [], 72)
 

@@ -15,7 +15,7 @@ SKILL = SCRIPT.parents[1] / "SKILL.md"
 
 class XiaohongshuSkillTest(unittest.TestCase):
     def test_skill_prompt_uses_only_listed_absolute_path(self) -> None:
-        workspace = Path("/tmp/homebot-workspace")
+        workspace = Path(tempfile.gettempdir()) / "homebot-workspace"
         builtin_skills = Path(__file__).parents[1] / "homebot" / "skills"
 
         with patch("homebot.agent.skills.BUILTIN_SKILLS_DIR", builtin_skills):

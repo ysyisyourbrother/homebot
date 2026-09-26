@@ -20,32 +20,44 @@ from homebot.cli.config import (
     _save_config,
 )
 from homebot.config.schema import Config
+from homebot.utils.platform import default_chrome_path
 
 
 class VoiceAudioDevicesCliTest(unittest.TestCase):
     def test_selects_input_and_output_devices(self) -> None:
         section = {}
         devices = [
-            {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0},
-            {"name": "USB Speaker", "max_input_channels": 1, "max_output_channels": 2},
-            {"name": "Built-in Speaker", "max_input_channels": 0, "max_output_channels": 2},
+            {"name": "Built-in Microphone", "max_input_channels": 1, "max_output_channels": 0, "hostapi": 0},
+            {"name": "USB Speaker", "max_input_channels": 1, "max_output_channels": 2, "hostapi": 0},
+            {"name": "Built-in Speaker", "max_input_channels": 0, "max_output_channels": 2, "hostapi": 0},
         ]
+        hostapis = [{"name": "Windows WASAPI"}]
 
         with (
             patch("sounddevice.query_devices", return_value=devices),
+            patch("sounddevice.query_hostapis", side_effect=lambda index: hostapis[index]),
+            patch("homebot.cli.config._probe_audio_device", return_value=None),
             patch("builtins.input", side_effect=["2", "1"]),
         ):
             _configure_voice_audio_devices(section)
 
-        self.assertEqual(section["inputDevice"], "USB Speaker")
-        self.assertEqual(section["outputDevice"], "USB Speaker")
+        # Stored as "name, host API": a bare device name is ambiguous wherever the
+        # same hardware is enumerated by several host APIs, and sounddevice then
+        # refuses to resolve it.
+        self.assertEqual(section["inputDevice"], "USB Speaker, Windows WASAPI")
+        self.assertEqual(section["outputDevice"], "USB Speaker, Windows WASAPI")
 
     def test_selects_system_default_devices(self) -> None:
         section = {"inputDevice": "USB Microphone", "outputDevice": "USB Speaker"}
-        devices = [{"name": "USB Device", "max_input_channels": 1, "max_output_channels": 2}]
+        devices = [
+            {"name": "USB Device", "max_input_channels": 1, "max_output_channels": 2, "hostapi": 0}
+        ]
+        hostapis = [{"name": "Windows WASAPI"}]
 
         with (
             patch("sounddevice.query_devices", return_value=devices),
+            patch("sounddevice.query_hostapis", side_effect=lambda index: hostapis[index]),
+            patch("homebot.cli.config._probe_audio_device", return_value=None),
             patch("builtins.input", side_effect=["0", "0"]),
         ):
             _configure_voice_audio_devices(section)
@@ -72,7 +84,7 @@ class VoiceAudioDevicesCliTest(unittest.TestCase):
             _configure_tools(config)
 
         self.assertTrue(config.tools.browser.enable)
-        self.assertEqual(config.tools.browser.executable_path, "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+        self.assertEqual(config.tools.browser.executable_path, default_chrome_path())
         self.assertEqual(config.tools.browser.user_data_dir, str(Path.home() / ".homebot" / "workspace" / "browser"))
         self.assertEqual(config.tools.browser.profile, "Homebot")
         self.assertEqual(
@@ -111,9 +123,9 @@ class VoiceAudioDevicesCliTest(unittest.TestCase):
         with patch("homebot.cli.config._configure_mijia") as configure_mijia, patch(
             "builtins.input", side_effect=["1", "0"]
         ):
-            _configure_skills(Path("/tmp/workspace"))
+            _configure_skills(Path(tempfile.gettempdir()) / "workspace")
 
-        configure_mijia.assert_called_once_with(Path("/tmp/workspace"))
+            configure_mijia.assert_called_once_with(Path(tempfile.gettempdir()) / "workspace")
 
     def test_enabling_voice_downloads_model_and_saves_immediately(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

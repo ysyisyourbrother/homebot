@@ -4,9 +4,17 @@ Browser Tool 让 homebot 在专用的 Google Chrome 中访问网页、完成页�
 
 ## 专用浏览器环境
 
-Browser Tool 仅支持安装了 Google Chrome 的 macOS。通过 `./install_env.sh` 安装 Playwright 等依赖后，首次调用 Browser Tool 会启动 Homebot 的专用 Chrome 窗口。
+Browser Tool 需要一个本机安装的 Google Chrome（或任何 Chromium 内核浏览器）以及 Python 包 `playwright`（随 `pip install -e .` 一起装好，无需额外步骤）。首次调用 Browser Tool 会启动 Homebot 的专用 Chrome 窗口。
 
-默认使用 `/Applications/Google Chrome.app`、`~/.homebot/workspace/browser` 数据目录，以及其中的 `Homebot` Profile。这个窗口与日常 Chrome 完全隔离：Homebot 不会读取、启动或关闭日常 Chrome，Cookie、登录状态、扩展和浏览器设置也不会相互影响。
+默认使用 `~/.homebot/workspace/browser` 作为数据目录、`Homebot` 作为 Profile；可执行文件的默认值按平台自动选择：
+
+| 平台 | 默认的可执行文件位置 |
+|---|---|
+| Windows | `C:\Program Files\Google\Chrome\Application\chrome.exe` |
+| macOS | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` |
+| Linux | `/usr/bin/google-chrome`（或 `google-chrome-stable` / `chromium`） |
+
+这个窗口与日常 Chrome 完全隔离：Homebot 不会读取、启动或关闭日常 Chrome，Cookie、登录状态、扩展和浏览器设置也不会相互影响。
 
 在需要登录 QQ 音乐、小红书等网站时，请始终在该专用窗口中完成登录；后续启动会复用保存的 Session。
 
@@ -25,7 +33,7 @@ python -m homebot config
 当向导询问 Browser 设置时，按以下方式填写：
 
 1. 将 `Browser` 设为 `yes`。
-2. 确认 `Browser Executable Path` 指向本机 Chrome 的可执行文件；默认值适用于常见的 macOS 安装位置。
+2. 确认 `Browser Executable Path` 指向本机 Chrome 的可执行文件；默认值已按平台自动选择常见安装位置。
 3. 在 `User Data Directory` 中使用 Homebot 工作区下的独立目录，例如：
 
    ```text

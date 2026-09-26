@@ -18,8 +18,9 @@ except ImportError:
 from homebot.agent.tools.base import Tool, tool_parameters
 from homebot.agent.tools.schema import NumberSchema, StringSchema, tool_parameters_schema
 from homebot.config.paths import get_browser_data_dir
+from homebot.utils.platform import default_chrome_path
 
-_DEFAULT_EXECUTABLE_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+_DEFAULT_EXECUTABLE_PATH = default_chrome_path()
 _ACTIONS = ("open", "wait", "inspect", "click")
 _STATES = ("attached", "visible", "hidden", "enabled", "playing")
 

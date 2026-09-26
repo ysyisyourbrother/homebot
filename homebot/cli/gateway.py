@@ -3,12 +3,20 @@
 import asyncio
 import os
 import sys
-import termios
 import traceback
-import tty
 from pathlib import Path
 
 from loguru import logger
+
+# termios/tty are POSIX-only. They are used for the "press ESC to pause" watcher,
+# which only makes sense on an interactive terminal anyway, so on Windows they
+# are simply absent and that watcher never runs.
+try:  # pragma: no cover - exercised on both platforms
+    import termios
+    import tty
+except ImportError:  # pragma: no cover - Windows
+    termios = None
+    tty = None
 
 from homebot.config.schema import Config
 from homebot.providers.base import GenerationSettings
@@ -180,7 +188,7 @@ def run(config: Config, *, port: int | None = None) -> None:
     agent.set_cancel_callback(channels.cancel_active_interactions)
 
     async def _watch_escape() -> None:
-        if not sys.stdin.isatty():
+        if not sys.stdin.isatty() or termios is None or tty is None:
             await asyncio.Future()
 
         fd = sys.stdin.fileno()

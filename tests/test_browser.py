@@ -1,15 +1,24 @@
 import asyncio
 import json
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homebot.agent.tools.browser import BrowserActionError, BrowserTool
+from homebot.utils.platform import default_chrome_path
 
 
 class BrowserToolTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
     def make_tool(self) -> BrowserTool:
-        return BrowserTool(user_data_dir="/tmp/homebot-browser-test", poll_interval_seconds=0)
+        return BrowserTool(user_data_dir=str(self.tmp / "browser"), poll_interval_seconds=0)
 
     async def test_launches_chrome_with_persistent_cookie_and_autoplay_settings(self) -> None:
         tool = self.make_tool()
@@ -27,8 +36,8 @@ class BrowserToolTest(unittest.IsolatedAsyncioTestCase):
             await tool._ensure_context()
 
         playwright.chromium.launch_persistent_context.assert_awaited_once_with(
-            "/tmp/homebot-browser-test",
-            executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            str(self.tmp / "browser"),
+            executable_path=default_chrome_path(),
             headless=False,
             args=["--profile-directory=Homebot", "--autoplay-policy=no-user-gesture-required"],
             ignore_default_args=[

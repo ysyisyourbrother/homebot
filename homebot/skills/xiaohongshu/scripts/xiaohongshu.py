@@ -6,7 +6,9 @@ import subprocess
 import sys
 import time
 
-_DEFAULT_EXECUTABLE_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+from homebot.utils.platform import default_chrome_path
+
+_DEFAULT_EXECUTABLE_PATH = default_chrome_path()
 
 
 _DANDIAN_INSTRUCTIONS = "请用简洁、清晰的纯文本直接回答，避免过度展开说明；不要生成图片、表情或 emoji。"

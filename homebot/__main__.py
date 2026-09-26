@@ -3,11 +3,32 @@ Entry point for homebot: python -m homebot
 """
 
 import argparse
+import sys
 
 from homebot import __logo__, __version__
 
 
+def configure_stdio() -> None:
+    """Make stdout/stderr UTF-8 safe on every platform.
+
+    When output is redirected to a file or a pipe, Windows Python falls back to
+    the ANSI code page of the system locale (GBK on a Chinese install, cp1252 on
+    a Western one).  The startup banner contains an emoji, so the process would
+    otherwise die with ``UnicodeEncodeError`` before the gateway is up - which is
+    exactly what happens when homebot runs as a service.  ``errors="replace"``
+    guarantees that no future character can ever be fatal.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):  # pragma: no cover - detached stream
+                pass
+
+
 def main():
+    configure_stdio()
+
     parser = argparse.ArgumentParser(
         prog="homebot",
         description=f"{__logo__} homebot - Personal AI Assistant (v{__version__})",

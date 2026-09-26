@@ -20,14 +20,11 @@ def main():
 
     cron_dir.mkdir(parents=True, exist_ok=True)
     lock_path = cron_dir / "action.lock"
-    import fcntl
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            with open(action_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"action": "del", "params": {"job_id": job_id}}, ensure_ascii=False) + "\n")
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    from filelock import FileLock
+
+    with FileLock(str(lock_path)):
+        with open(action_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"action": "del", "params": {"job_id": job_id}}, ensure_ascii=False) + "\n")
 
     print(f"已删除闹钟 {job_id}")
 

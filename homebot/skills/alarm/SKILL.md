@@ -10,7 +10,7 @@ description: 闹钟和定时提醒（一次性 + 周期性）。当用户说"设
 ## 设定闹钟 -> `set.py`
 
 ```bash
-python3 <SCRIPT> --message "<内容>" --channel <channel> --chat-id <Chat ID> <调度参数>
+python <SCRIPT> --message "<内容>" --channel <channel> --chat-id <Chat ID> <调度参数>
 ```
 
 ### 调度参数（五选一）
@@ -36,7 +36,7 @@ python3 <SCRIPT> --message "<内容>" --channel <channel> --chat-id <Chat ID> <�
 ## 查看闹钟 -> `list.py`
 
 ```bash
-python3 <SCRIPT>
+python <SCRIPT>
 ```
 
 直接输出脚本结果，不用读文件。输出中 `[周期]` 表示重复闹钟，`[pending]` 表示等待 CronService 消费。
@@ -44,7 +44,7 @@ python3 <SCRIPT>
 ## 删除闹钟 -> `delete.py`
 
 ```bash
-python3 <SCRIPT> <job_id>
+python <SCRIPT> <job_id>
 ```
 
 - `job_id`：8 位短 ID，从 list 结果获取。

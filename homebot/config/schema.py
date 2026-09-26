@@ -7,6 +7,8 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 from pydantic_settings import BaseSettings
 
+from homebot.utils.platform import default_chrome_path
+
 
 class Base(BaseModel):
     """Base model that accepts both camelCase and snake_case keys."""
@@ -122,7 +124,7 @@ class BrowserConfig(Base):
     """Browser automation configuration."""
 
     enable: bool = True
-    executable_path: str = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    executable_path: str = Field(default_factory=default_chrome_path)
     user_data_dir: str = str(Path.home() / ".homebot" / "workspace" / "browser")
     profile: str = "Homebot"
     timeout_seconds: int = 15

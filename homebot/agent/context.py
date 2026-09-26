@@ -3,6 +3,7 @@
 import base64
 import mimetypes
 import platform
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ class ContextBuilder:
             workspace_path=workspace_path,
             profile_path=str(profile_path) if profile_path else "",
             runtime=runtime,
+            python_path=sys.executable,
             platform_policy=render_template("agent/platform_policy.md", system=system),
             channel=channel or "",
         )

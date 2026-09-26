@@ -1,15 +1,20 @@
 # 快速开始
 
-本指南将帮助你完成 homebot 的安装、初始化与启动。homebot 是一个基于对话的家庭智能助手 Agent：完成初始化后，即可通过已配置的渠道与它交流、执行任务和协同管理家庭设备。
+本指南帮助你完成 homebot 的安装、初始化与启动。homebot 是一个基于对话的家庭智能助手 Agent：完成初始化后，即可通过已配置的渠道与它交流、执行任务和协同管理家庭设备。
+
+::: tip 想要一份逐步可验证的部署清单？
+- **Windows**：[Windows 部署指南](/guide/deployment-windows.html)（含虚拟环境、音频设备、开机自启）
+- **macOS / Linux**：本页的命令已适用于这两个平台；开机自启可用 `systemd` 或 `launchd` 托管 `python -m homebot gateway`
+:::
 
 ## 环境要求
 
-::: warning 操作系统支持
-目前仅支持 macOS，Windows 支持正在开发中。
-:::
-
-- **Python**：3.11 或更高版本
-- **包管理器**：pip
+| 项目 | 要求 |
+|---|---|
+| 操作系统 | Windows 10/11、macOS、Linux 均可 |
+| Python | **3.11 或更高** |
+| 包管理器 | pip |
+| 可选依赖 | Google Chrome（浏览器类技能）、麦克风与扬声器（语音通道） |
 
 ## 1. 安装项目
 
@@ -31,8 +36,16 @@ pip install -e .
 
 `pip install -e .` 会根据项目根目录中的 `pyproject.toml` 安装 homebot 及其依赖，并以可编辑模式关联当前源码；之后修改源码无需重复安装。
 
-::: tip 提示
-建议先创建并激活独立的 Python 虚拟环境，再执行安装命令，避免影响系统中的其他 Python 项目。
+::: tip 建议使用虚拟环境
+先创建并激活独立的 Python 虚拟环境再安装，避免影响系统中其他 Python 项目：
+
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\python -m pip install -e .
+# macOS / Linux
+.venv/bin/python -m pip install -e .
+```
 :::
 
 ## 2. 初始化配置
@@ -61,7 +74,7 @@ homebot init
 
 本指南后续均以源码安装为例，因此继续使用 `python -m homebot`。如果你通过 PyPI 安装，只需将命令开头替换为 `homebot` 即可。
 
-配置文件会保存到 `~/.homebot/config.json`。
+配置文件会保存到 `~/.homebot/config.json`（Windows 上为 `%USERPROFILE%\.homebot\config.json`）。
 
 ## 3. 启动 homebot
 
@@ -80,7 +93,23 @@ curl http://127.0.0.1:18790/health
 # 返回: {"status": "ok"}
 ```
 
+## 4. 修改配置
+
+任何时候都可以运行交互式配置菜单，修改模型、语音、工具与通道设置：
+
+```bash
+python -m homebot config
+```
+
+改动写入配置文件后，需要**重启网关**才会生效。各配置项的详细说明见：
+
+- [语音设置](/voice/wake-word.html)：唤醒词、声纹、麦克风选择
+- [消息通道](/channels/feishu.html)：飞书、Telegram
+- [Agent Tools](/tools/index.html)：联网、搜索、命令执行、浏览器
+- [内置 Skills](/skills/index.html)：音乐、小红书、米家、闹钟、天气
+
 ## 下一步
 
+- **Windows 用户**：按 [Windows 部署指南](/guide/deployment-windows.html) 配置音频设备与开机自启
 - 配置消息通道，连接飞书、Telegram 或语音
 - 浏览 [Skills](/skills/index.html) 和 [Tools](/tools/index.html)，了解 homebot 可用的能力

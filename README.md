@@ -30,50 +30,15 @@ Homebot is a locally deployable personal AI agent designed for practical home au
 - **Local-first deployment** that can run on an existing computer with a clear, modular architecture for personal customization.
 - **Extensible tools and skills** for adding new integrations without changing the core conversation flow.
 
-## Quick Start
+## Documentation
 
-Requirements: Python 3.11 or later. macOS is currently supported, with Windows support in progress.
+Installation, configuration, channels, tools and skills are documented at
+**[ysyisyourbrother.github.io/homebot](https://ysyisyourbrother.github.io/homebot/)**.
 
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/ysyisyourbrother/homebot.git
-cd homebot
-```
-
-Downloads the source code and switches to the project directory.
-
-### 2. Install Homebot
-
-```bash
-pip install -e .
-```
-
-Installs Homebot and its dependencies in editable mode, so local source changes are available immediately.
-
-### 3. Initialize the configuration
-
-```bash
-python -m homebot init
-```
-
-Starts the setup wizard for the model provider, API keys, and optional voice services. The default configuration is stored at `~/.homebot/config.json`.
-
-### 4. Start the gateway
-
-```bash
-python -m homebot gateway
-```
-
-Starts the gateway and all enabled channels. By default, it listens on `127.0.0.1:18790`.
-
-Check the gateway health if needed:
-
-```bash
-curl http://127.0.0.1:18790/health
-```
-
-See the [documentation](docs/guide/quick-start.md) for channel configuration, tools, and skills.
+Homebot runs on Python 3.11 or later. The documentation covers each supported
+platform, including how to keep it running in the background and how to point
+the voice channel at a specific microphone and speaker. See also the rest of
+this README for what Homebot is and what it can do.
 
 ## Contact
 

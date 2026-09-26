@@ -7,6 +7,12 @@ from pathlib import Path
 
 
 MODULE_PATH = Path(__file__).parents[1] / "tools" / "kws_bench" / "kws_bench.py"
+
+if not MODULE_PATH.is_file():
+    # tools/ ships in the development checkout only, so a plain clone cannot
+    # run this module. Skip rather than aborting collection for the whole suite.
+    raise unittest.SkipTest(f"kws_bench tool not present: {MODULE_PATH}")
+
 SPEC = importlib.util.spec_from_file_location("kws_bench", MODULE_PATH)
 kws_bench = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

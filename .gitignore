@@ -89,6 +89,13 @@ nano.*.save
 .env.*
 !.env.example
 
+# Machine-specific deployment notes and local runtime data.
+# AGENTS.md is written per machine (absolute paths, service names, credentials
+# handling) and must never be published by accident.
+AGENTS.md
+.homebot/
+config.local.*
+
 # Logs & temp
 *.log
 logs/

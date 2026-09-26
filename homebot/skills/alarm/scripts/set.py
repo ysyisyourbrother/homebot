@@ -95,14 +95,11 @@ def _write_action(store_dir: Path, action: str, params: dict) -> None:
     store_dir.mkdir(parents=True, exist_ok=True)
     action_path = store_dir / "action.jsonl"
     lock_path = store_dir / "action.lock"
-    import fcntl
-    with open(lock_path, "w") as lf:
-        fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
-        try:
-            with open(action_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({"action": action, "params": params}, ensure_ascii=False) + "\n")
-        finally:
-            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+    from filelock import FileLock
+
+    with FileLock(str(lock_path)):
+        with open(action_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"action": action, "params": params}, ensure_ascii=False) + "\n")
 
 
 def _format_target(at_dt: datetime, kind: str, raw: str) -> str:

@@ -14,6 +14,19 @@ Use `grep(output_mode="count")` / `files_with_matches` for broad searches first,
 use `head_limit` / `offset` to page through large result sets,
 and `glob(entry_type="dirs")` when discovering directory structure matters.
 
+### Cross-platform commands in SKILL.md
+
+SKILL.md is read verbatim by the agent on Windows, macOS and Linux, so any shell
+command in it has to be platform-neutral:
+
+- Write `python <SCRIPT>`, never `python3`. Windows has no `python3`, and on
+  macOS/Linux a bare `python3` may not be the interpreter that has homebot's
+  dependencies. The system prompt tells the agent the exact interpreter path
+  (see `templates/agent/identity.md` and `platform_policy.md`).
+- Avoid Unix-only utilities (`grep`, `sed`, `awk`, `chmod`). Prefer homebot's
+  own tools, or say what you want rather than how to do it.
+- Prefer forward slashes in relative paths; they work on all three platforms.
+
 ## Attribution
 
 These skills are adapted from [OpenClaw](https://github.com/openclaw/openclaw)'s skill system.

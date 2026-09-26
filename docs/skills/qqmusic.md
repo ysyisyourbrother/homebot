@@ -20,8 +20,15 @@ QQ Music Skill 让 homebot 能够搜索和播放 QQ 音乐歌曲。
 QQ Music Skill 需要 `QQMUSIC_API_KEY` 来调用 QQ 音乐 API。
 
 ```bash
-# 设置环境变量
+# macOS / Linux：设置环境变量
 export QQMUSIC_API_KEY="your-api-key"
+```
+
+```powershell
+# Windows PowerShell
+$env:QQMUSIC_API_KEY = "your-api-key"
+# 需要永久生效时：
+setx QQMUSIC_API_KEY "your-api-key"
 ```
 
 ### 2. 浏览器登录
