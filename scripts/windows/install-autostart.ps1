@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     把 homebot 网关注册成 Windows 登录自启任务。
 
