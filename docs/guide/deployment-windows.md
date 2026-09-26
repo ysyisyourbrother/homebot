@@ -230,20 +230,118 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-autostart.ps1
 |---|---|
 | 查看日志 | `Get-Content $env:USERPROFILE\.homebot\logs\gateway.log -Wait -Encoding UTF8` |
 | 改配置 | `.\.venv\Scripts\python.exe -m homebot config`，改完**重启**任务生效 |
-| 更新版本 | 见下方 |
-| 备份 | 复制整个 `%USERPROFILE%\.homebot` 目录即可（含配置、记忆、语音模型） |
+| 更新版本 | 用 `scripts\windows\update-homebot.ps1`，见下节 |
+| 备份与恢复 | 用 `scripts\windows\backup-homebot.ps1` / `restore-homebot.ps1`，见下节 |
 
-**更新版本**（源码安装）：
+::: tip 中文 Windows 下改配置要先设编码
+配置界面的横幅含 emoji，直接跑 `python -m homebot config` 会在中文 Windows 上以
+`UnicodeEncodeError: 'gbk' codec ...` 崩溃。执行前先设一次：
 
 ```powershell
-cd $env:USERPROFILE\Codespace\homebot
-git pull
-.\.venv\Scripts\pip.exe install -e .
-Stop-ScheduledTask  -TaskName homebot-Gateway
-Start-ScheduledTask -TaskName homebot-Gateway
+$env:PYTHONUTF8 = 1; .\.venv\Scripts\python.exe -m homebot config
+```
+:::
+
+## 10. 备份、恢复与更新
+
+`scripts\windows\` 下的脚本把日常维护收敛成几条命令。除了第 8 步的网关任务，建议把每日备份任务也注册上：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-backup-task.ps1
 ```
 
-## 10. 故障排查
+### 备份
+
+需要保住的东西都在 `%USERPROFILE%\.homebot`：`config.json`（API Key、音频设备选择）、
+`workspace\`（成员、会话、记忆、技能、声纹）、语音模型。快照是**滚动**的，每个集合只留最新
+3 份，且三个集合各自滚动，所以连续重试更新不会把每日快照挤掉：
+
+| 集合 | 文件名 | 谁在写 |
+|---|---|---|
+| 每日 | `homebot-<时间戳>.zip` | 计划任务 `homebot-Backup`（默认 03:30） |
+| 更新前 | `homebot-preupdate-<时间戳>.zip` | `update-homebot.ps1` |
+| 恢复前 | `homebot-prerestore-<时间戳>.zip` | `restore-homebot.ps1` |
+
+每份压缩包写完立即校验：能打开、含 `config.json`、源目录存在 `workspace\` 时含其内容。
+校验不通过就删掉压缩包并以非零码结束，所以坏备份不会被误当成好备份。压缩包**不含**
+`backups\` 自身与 `workspace\browser\`（Chrome profile，可重建）。
+
+```powershell
+# 立刻做一份快照 / 只看清单
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-homebot.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-homebot.ps1 -List
+
+# 每个集合保留多少份（默认 3，最小 2）
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-homebot.ps1 -Keep 5
+```
+
+### 更新
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\update-homebot.ps1
+```
+
+一条命令，内部严格按顺序执行：
+
+1. 工作区不干净就**直接停下**（部署机只部署，不该有本地改动）；
+2. 把 `~/.homebot` 备份到 `preupdate` 集合并**校验压缩包**，失败就完全不碰代码；
+3. 记录当前提交号 → `git fetch` + `git pull --ff-only`；
+4. `pip install -e` 刷新依赖（捕捉依赖变化）；
+5. 重启网关并轮询 `http://127.0.0.1:18790/health`；
+6. 不健康就打印回滚命令并以退出码 1 结束。
+
+整个过程只读数据、只写备份。需要走代理或镜像源时加参数：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\update-homebot.ps1 `
+  -Proxy http://127.0.0.1:7890 -PipIndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+### 回滚与恢复
+
+**代码回滚**（新版本跑不起来；更新前的提交号会打印在更新脚本的输出里）：
+
+```powershell
+git -C <仓库目录> reset --hard <更新前的提交号>
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\restart-homebot.ps1
+```
+
+**数据恢复**：
+
+```powershell
+# 看有哪些候选
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\restore-homebot.ps1 -List
+# 恢复最新一份（会先问一次，加 -Yes 可跳过）
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\restore-homebot.ps1
+# 指定某一份
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\restore-homebot.ps1 `
+  -Archive "C:\Users\you\.homebot\backups\homebot-20260926-033001.zip"
+```
+
+恢复过程：停网关（等进程真的退出）→ 校验压缩包 → **先把当前状态也备份一份**
+（`prerestore` 集合，所以恢复本身还能再撤回）→ 解压覆盖回数据目录 → 重启并健康检查。
+覆盖是**加法**：现在存在、而压缩包里没有的文件保持原样，因此恢复永远不会删数据。
+
+### 脚本清单
+
+| 脚本 | 作用 |
+|---|---|
+| `install-autostart.ps1` | 注册登录自启任务（第 8 步）；`-Uninstall` 移除 |
+| `install-backup-task.ps1` | 注册每日备份任务；`-At 04:15` 改时刻，`-Uninstall` 移除 |
+| `backup-homebot.ps1` | 立刻做一份快照；`-List` 看清单 |
+| `restore-homebot.ps1` | 从快照恢复（加性，不删文件） |
+| `update-homebot.ps1` | 先备份再拉取、刷新依赖、重启并验证健康 |
+| `restart-homebot.ps1` | 重启网关并等它恢复响应 |
+
+所有脚本都接受 `-DataDir`（默认 `$env:USERPROFILE\.homebot`），参数说明可用
+`Get-Help .\scripts\windows\<脚本名> -Full` 查看。
+
+::: warning 自己新增 .ps1 时请保存为 UTF-8 with BOM
+Windows PowerShell 5.1 会把**没有 BOM** 的 `.ps1` 按 ANSI 读取。文件里一旦有中文，
+被误读的字节可能吞掉引号、导致整段代码语法错误（本目录的脚本因此都带 BOM）。
+:::
+
+## 11. 故障排查
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
@@ -256,7 +354,7 @@ Start-ScheduledTask -TaskName homebot-Gateway
 | 飞书里发消息没反应 | 机器人未开启长连接 / 应用权限不足 | 见[飞书通道文档](/channels/feishu.html)；确认日志里有 `Feishu bot started with WebSocket long connection` |
 | 端口 18790 被占用 | 已有实例在运行 | `Get-NetTCPConnection -LocalPort 18790 -State Listen` 找到进程后处理，避免同时跑两个实例 |
 
-## 11. 附录：不用脚本手动注册计划任务
+## 12. 附录：不用脚本手动注册计划任务
 
 如果希望完全手动，命令等价于脚本里的操作：
 
