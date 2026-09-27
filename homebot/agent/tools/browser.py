@@ -15,6 +15,8 @@ except ImportError:
     PlaywrightTimeoutError = TimeoutError
     async_playwright = None
 
+from loguru import logger
+
 from homebot.agent.tools.base import Tool, tool_parameters
 from homebot.agent.tools.schema import NumberSchema, StringSchema, tool_parameters_schema
 from homebot.config.paths import get_browser_data_dir
@@ -23,6 +25,20 @@ from homebot.utils.platform import default_chrome_path
 _DEFAULT_EXECUTABLE_PATH = default_chrome_path()
 _ACTIONS = ("open", "wait", "inspect", "click")
 _STATES = ("attached", "visible", "hidden", "enabled", "playing")
+
+# Chromium reports these as net::ERR_* — they are transient in practice and
+# worth one more attempt (see _goto_with_retry).
+_TRANSIENT_NAV_ERRORS = (
+    "ERR_HTTP2_PROTOCOL_ERROR",
+    "ERR_NETWORK_CHANGED",
+    "ERR_CONNECTION_RESET",
+    "ERR_CONNECTION_CLOSED",
+    "ERR_CONNECTION_ABORTED",
+    "ERR_EMPTY_RESPONSE",
+    "ERR_SOCKET_NOT_CONNECTED",
+    "ERR_TIMED_OUT",
+    "ERR_NAME_NOT_RESOLVED",
+)
 
 
 class BrowserActionError(RuntimeError):
@@ -267,12 +283,44 @@ class BrowserTool(Tool):
         await page.bring_to_front()
         if not matches:
             try:
-                await page.goto(url, wait_until="commit", timeout=self._milliseconds(timeout))
+                await self._goto_with_retry(page, url, timeout)
             except BaseException:
                 self._pages.pop(page_id, None)
                 await page.close()
                 raise
         return await self._success("open", page_id, page, {"ready_state": await page.evaluate("document.readyState")})
+
+    async def _goto_with_retry(
+        self, page: Any, url: str, timeout: float, attempts: int = 3
+    ) -> None:
+        """Navigate, retrying the transient errors Chromium reports on first try.
+
+        y.qq.com's player page reliably fails the first navigation with
+        ``net::ERR_HTTP2_PROTOCOL_ERROR`` here and succeeds on the retry, so
+        retrying inside the tool saves every caller from special-casing it.
+        """
+        for attempt in range(1, attempts + 1):
+            try:
+                await page.goto(
+                    url, wait_until="commit", timeout=self._milliseconds(timeout)
+                )
+                return
+            except PlaywrightTimeoutError:
+                raise
+            except Exception as exc:
+                message = str(exc)
+                transient = any(token in message for token in _TRANSIENT_NAV_ERRORS)
+                if attempt >= attempts or not transient:
+                    raise
+                first_line = message.splitlines()[0] if message else type(exc).__name__
+                logger.warning(
+                    "Browser: navigation to {} failed (attempt {}/{}), retrying: {}",
+                    url,
+                    attempt,
+                    attempts,
+                    first_line,
+                )
+                await asyncio.sleep(min(0.5 * attempt, 1.5))
 
     def _get_page(self, page_id: str) -> Any | None:
         page = self._pages.get(page_id)
