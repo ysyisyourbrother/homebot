@@ -427,9 +427,12 @@ class FeishuChannel(BaseChannel):
         self._ws_thread = threading.Thread(target=run_ws, daemon=True)
         self._ws_thread.start()
 
-        # Fetch bot's own open_id for accurate @mention matching
+        # Fetch bot's own open_id for accurate @mention matching.  Retry a few
+        # times: the gateway may start while the network stack is still coming
+        # up, and a single failed lookup degrades @mention matching until the
+        # next restart (a transient DNS failure did exactly that on 2026-09-27).
         self._bot_open_id = await asyncio.get_running_loop().run_in_executor(
-            None, self._fetch_bot_open_id
+            None, self._fetch_bot_open_id_with_retry
         )
         if self._bot_open_id:
             logger.info("Feishu bot open_id: {}", self._bot_open_id)
@@ -454,7 +457,27 @@ class FeishuChannel(BaseChannel):
         self._running = False
         logger.info("Feishu bot stopped")
 
-    def _fetch_bot_open_id(self) -> str | None:
+    def _fetch_bot_open_id_with_retry(
+        self, attempts: int = 4, delay: float = 3.0
+    ) -> str | None:
+        """Fetch the bot open_id, tolerating a short DNS/network outage."""
+        for attempt in range(1, attempts + 1):
+            open_id = self._fetch_bot_open_id(verbose=attempt == attempts)
+            if open_id:
+                if attempt > 1:
+                    logger.info("Feishu bot open_id fetched on attempt {}", attempt)
+                return open_id
+            if attempt < attempts:
+                logger.info(
+                    "Feishu: bot open_id lookup failed (attempt {}/{}), retrying in {}s",
+                    attempt,
+                    attempts,
+                    delay,
+                )
+                time.sleep(delay)
+        return None
+
+    def _fetch_bot_open_id(self, *, verbose: bool = True) -> str | None:
         """Fetch the bot's own open_id via GET /open-apis/bot/v3/info."""
         try:
             import lark_oapi as lark
@@ -473,10 +496,12 @@ class FeishuChannel(BaseChannel):
                 data = json.loads(response.raw.content)
                 bot = (data.get("data") or data).get("bot") or data.get("bot") or {}
                 return bot.get("open_id")
-            logger.warning("Failed to get bot info: code={}, msg={}", response.code, response.msg)
+            log = logger.warning if verbose else logger.debug
+            log("Failed to get bot info: code={}, msg={}", response.code, response.msg)
             return None
         except Exception as e:
-            logger.warning("Error fetching bot info: {}", e)
+            log = logger.warning if verbose else logger.debug
+            log("Error fetching bot info: {}", e)
             return None
 
     @staticmethod
