@@ -79,6 +79,18 @@ def batch_call(base_url: str, access_token: str, operations: Any) -> List[Any]:
         results.append(call_service(base_url, access_token, domain, service, entity_ids, data))
     return results
 
+def _json_arg(payload: str) -> str:
+    """Quote a JSON argument the way this platform's shell expects.
+
+    bash wants single quotes.  cmd.exe does no escaping of its own, but the C
+    runtime used by Python turns ``\\"`` inside a double-quoted argument into a
+    literal quote, which is how a JSON payload survives there.
+    """
+    if sys.platform == "win32":
+        return '"' + payload.replace('"', '\\"') + '"'
+    return "'" + payload + "'"
+
+
 def build_skill(states: List[Dict[str, Any]], output_path: Path) -> None:
     controllable_domains = {"light", "switch", "climate", "fan", "cover", "humidifier", "vacuum", "media_player"}
     devices = [
@@ -88,12 +100,16 @@ def build_skill(states: List[Dict[str, Any]], output_path: Path) -> None:
     ]
     config_path = output_path.parent / "config.json"
     executor_path = Path(__file__).resolve()
+    # Call the interpreter that is running this driver: Windows has no
+    # `python3` at all, and on macOS a bare `python3` may not be the one
+    # homebot installed its dependencies into.
+    interpreter = sys.executable
 
     lines = [
         "---",
         "name: mijia",
         "description: 通过米家控制已配置的家庭灯、空调、浴霸和其他智能设备。当用户要求开关或调节家庭设备时使用。",
-        "metadata: {\"homebot\":{\"always\":true,\"requires\":{\"bins\":[\"python3\"]}}}",
+        "metadata: {\"homebot\":{\"always\":true}}",
         "---",
         "",
         "# 家庭设备控制（已激活）",
@@ -119,12 +135,17 @@ def build_skill(states: List[Dict[str, Any]], output_path: Path) -> None:
         "",
         "单个动作：",
         "```bash",
-        f"python3 {executor_path} --config {config_path} call <domain> <service> --entity-id <entity_id> [--data '<JSON>']",
+        f'"{interpreter}" "{executor_path}" --config "{config_path}" call <domain> <service> '
+        f"--entity-id <entity_id> [--data {_json_arg('{\"temperature\":24}')}]",
         "```",
         "",
         "多个动作：",
         "```bash",
-        f"python3 {executor_path} --config {config_path} batch --operations '[{{\"domain\":\"light\",\"service\":\"turn_off\",\"entity_id\":\"light.example_one\"}},{{\"domain\":\"climate\",\"service\":\"turn_off\",\"entity_id\":\"climate.example_two\"}}]'",
+        f'"{interpreter}" "{executor_path}" --config "{config_path}" batch --operations '
+        + _json_arg(
+            '[{"domain":"light","service":"turn_off","entity_id":"light.example_one"},'
+            '{"domain":"climate","service":"turn_off","entity_id":"climate.example_two"}]'
+        ),
         "```",
         "",
         "## 已发现的可控设备",

@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 
 import yaml
@@ -16,6 +17,18 @@ _STRIP_SKILL_FRONTMATTER = re.compile(
     r"^---\s*\r?\n(.*?)\r?\n---\s*\r?\n?",
     re.DOTALL,
 )
+
+# Skill frontmatter may declare ``platforms: [win32, darwin]`` (any mix of
+# sys.platform values, the friendly aliases below, or ``posix``).  A skill for
+# one platform is then invisible on the other: no title in the prompt, no
+# wasted tokens, nothing for the agent to consider.
+_PLATFORM_ALIASES = {
+    "windows": "win32",
+    "macos": "darwin",
+    "mac": "darwin",
+    "osx": "darwin",
+    "linux": "linux",
+}
 
 
 class SkillsLoader:
@@ -68,9 +81,39 @@ class SkillsLoader:
         if self.disabled_skills:
             skills = [s for s in skills if s["name"] not in self.disabled_skills]
 
+        # Platform gating happens for every caller (not just the availability
+        # filter): a skill that only works on one OS is not "unavailable", it
+        # simply does not exist here.
+        skills = [
+            skill for skill in skills if self._platform_matches(self._get_skill_meta(skill["name"]))
+        ]
+
         if filter_unavailable:
             return [skill for skill in skills if self._check_requirements(self._get_skill_meta(skill["name"]))]
         return skills
+
+    @staticmethod
+    def _platform_matches(skill_meta: dict) -> bool:
+        """Does this skill apply to the current platform?
+
+        Absent/empty ``platforms`` means "everywhere"; otherwise the list is
+        matched against ``sys.platform`` (with friendly aliases and ``posix``).
+        """
+        wanted = skill_meta.get("platforms")
+        if not wanted:
+            return True
+        if isinstance(wanted, str):
+            wanted = [wanted]
+        current = sys.platform
+        for entry in wanted:
+            token = str(entry).strip().lower()
+            if token in ("all", "*"):
+                return True
+            if token == "posix" and os.name == "posix":
+                return True
+            if _PLATFORM_ALIASES.get(token, token) == current:
+                return True
+        return False
 
     def load_skill(self, name: str) -> str | None:
         """

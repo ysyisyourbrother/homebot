@@ -26,6 +26,22 @@ command in it has to be platform-neutral:
 - Avoid Unix-only utilities (`grep`, `sed`, `awk`, `chmod`). Prefer homebot's
   own tools, or say what you want rather than how to do it.
 - Prefer forward slashes in relative paths; they work on all three platforms.
+- Anything that truly differs per platform belongs in a script, not in the
+  prose: SKILL.md says "run `scripts/xxx.py`" and the script handles quoting,
+  encoding and path conventions itself. `skills/qqmusic/scripts/search.py` is
+  the reference example.
+- If a whole skill only makes sense on one platform, gate it with frontmatter
+  instead of writing "on Windows … / on macOS …" into the body:
+
+  ```yaml
+  metadata: {"homebot":{"platforms":["win32"]}}   # or darwin / linux / posix / *
+  ```
+
+  A skill that does not match the current platform is not shown to the agent at
+  all, so it costs nothing in the prompt.
+
+The full rationale (capability layer, deployment contract, checklist for new
+platform-dependent features) is in `docs/architecture/platform-support.md`.
 
 ## Attribution
 
