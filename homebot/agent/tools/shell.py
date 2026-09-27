@@ -3,18 +3,18 @@
 import asyncio
 import os
 import re
-import shutil
-import sys
 from pathlib import Path
 from typing import Any
-
-from loguru import logger
 
 from homebot.agent.tools.base import Tool, tool_parameters
 from homebot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
 from homebot.config.paths import get_media_dir
-
-_IS_WINDOWS = sys.platform == "win32"
+from homebot.system import (
+    apply_path_append,
+    build_subprocess_env,
+    kill_process,
+    spawn,
+)
 
 
 @tool_parameters(
@@ -110,16 +110,11 @@ class ExecTool(Tool):
             return guard_error
 
         effective_timeout = min(timeout or self.timeout, self._MAX_TIMEOUT)
-        env = self._build_env()
-
-        if self.path_append:
-            if _IS_WINDOWS:
-                env["PATH"] = env.get("PATH", "") + ";" + self.path_append
-            else:
-                command = f'export PATH="$PATH:{self.path_append}"; {command}'
+        env = build_subprocess_env(self.allowed_env_keys)
+        command = apply_path_append(command, env, self.path_append)
 
         try:
-            process = await self._spawn(command, cwd, env)
+            process = await spawn(command, cwd=cwd, env=env)
 
             try:
                 stdout, stderr = await asyncio.wait_for(
@@ -127,10 +122,10 @@ class ExecTool(Tool):
                     timeout=effective_timeout,
                 )
             except asyncio.TimeoutError:
-                await self._kill_process(process)
+                await kill_process(process)
                 return f"Error: Command timed out after {effective_timeout} seconds"
             except asyncio.CancelledError:
-                await self._kill_process(process)
+                await kill_process(process)
                 raise
 
             output_parts = []
@@ -161,97 +156,6 @@ class ExecTool(Tool):
         except Exception as e:
             return f"Error executing command: {str(e)}"
 
-    @staticmethod
-    async def _spawn(
-        command: str, cwd: str, env: dict[str, str],
-    ) -> asyncio.subprocess.Process:
-        """Launch *command* in a platform-appropriate shell."""
-        if _IS_WINDOWS:
-            # shell=True keeps the command string verbatim for cmd.exe.  Passing
-            # it as an argv element instead lets CPython escape the inner quotes
-            # as \" (list2cmdline), which cmd.exe does not understand -- it then
-            # tries to run `\"C:\path\python.exe\"` and every quoted command
-            # fails, which sent the agent into a retry loop on 2026-09-27.
-            return await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=env,
-            )
-        bash = shutil.which("bash") or "/bin/bash"
-        return await asyncio.create_subprocess_exec(
-            bash, "-l", "-c", command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            env=env,
-        )
-
-    @staticmethod
-    async def _kill_process(process: asyncio.subprocess.Process) -> None:
-        """Kill a subprocess and reap it to prevent zombies."""
-        process.kill()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
-            pass
-        finally:
-            if not _IS_WINDOWS:
-                try:
-                    os.waitpid(process.pid, os.WNOHANG)
-                except (ProcessLookupError, ChildProcessError) as e:
-                    logger.debug("Process already reaped or not found: {}", e)
-
-    def _build_env(self) -> dict[str, str]:
-        """Build a minimal environment for subprocess execution.
-
-        On Unix, only HOME/LANG/TERM are passed; ``bash -l`` sources the
-        user's profile which sets PATH and other essentials.
-
-        On Windows, ``cmd.exe`` has no login-profile mechanism, so a curated
-        set of system variables (including PATH) is forwarded.  API keys and
-        other secrets are still excluded.
-        """
-        if _IS_WINDOWS:
-            sr = os.environ.get("SYSTEMROOT", r"C:\Windows")
-            env = {
-                "SYSTEMROOT": sr,
-                "COMSPEC": os.environ.get("COMSPEC", f"{sr}\\system32\\cmd.exe"),
-                "USERPROFILE": os.environ.get("USERPROFILE", ""),
-                "HOMEDRIVE": os.environ.get("HOMEDRIVE", "C:"),
-                "HOMEPATH": os.environ.get("HOMEPATH", "\\"),
-                "TEMP": os.environ.get("TEMP", f"{sr}\\Temp"),
-                "TMP": os.environ.get("TMP", f"{sr}\\Temp"),
-                "PATHEXT": os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD"),
-                "PATH": os.environ.get("PATH", f"{sr}\\system32;{sr}"),
-                "APPDATA": os.environ.get("APPDATA", ""),
-                "LOCALAPPDATA": os.environ.get("LOCALAPPDATA", ""),
-                "ProgramData": os.environ.get("ProgramData", ""),
-                "ProgramFiles": os.environ.get("ProgramFiles", ""),
-                "ProgramFiles(x86)": os.environ.get("ProgramFiles(x86)", ""),
-                "ProgramW6432": os.environ.get("ProgramW6432", ""),
-                # Output is decoded as UTF-8 below; without this, Python writes
-                # GBK to the pipe on a Chinese Windows and every non-ASCII
-                # character in a skill's output turns into mojibake.
-                "PYTHONIOENCODING": "utf-8",
-            }
-            for key in self.allowed_env_keys:
-                val = os.environ.get(key)
-                if val is not None:
-                    env[key] = val
-            return env
-        home = os.environ.get("HOME", "/tmp")
-        env = {
-            "HOME": home,
-            "LANG": os.environ.get("LANG", "C.UTF-8"),
-            "TERM": os.environ.get("TERM", "dumb"),
-        }
-        for key in self.allowed_env_keys:
-            val = os.environ.get(key)
-            if val is not None:
-                env[key] = val
-        return env
 
     def _guard_command(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""

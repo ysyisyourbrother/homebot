@@ -3,11 +3,11 @@
 import base64
 import mimetypes
 import platform
-import sys
 from pathlib import Path
 from typing import Any
 
 from homebot.agent.skills import SkillsLoader
+from homebot.system import platform_label, python_executable
 from homebot.utils.helpers import build_assistant_message, current_time_str, detect_image_mime
 from homebot.utils.prompt_templates import render_template
 
@@ -52,15 +52,15 @@ class ContextBuilder:
     def _get_identity(self, channel: str | None = None, profile_path: Path | None = None) -> str:
         """Get the core identity section."""
         workspace_path = str(self.workspace.expanduser().resolve())
-        system = platform.system()
-        runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
+        system = platform_label()
+        runtime = f"{system} {platform.machine()}, Python {platform.python_version()}"
 
         return render_template(
             "agent/identity.md",
             workspace_path=workspace_path,
             profile_path=str(profile_path) if profile_path else "",
             runtime=runtime,
-            python_path=sys.executable,
+            python_path=python_executable(),
             platform_policy=render_template("agent/platform_policy.md", system=system),
             channel=channel or "",
         )

@@ -9,6 +9,7 @@ import sys
 from homebot import __version__
 from homebot.bus.events import OutboundMessage
 from homebot.command.router import CommandContext, CommandRouter
+from homebot.system import restart_in_place
 from homebot.utils.helpers import build_status_content
 from homebot.utils.restart import set_restart_notice_to_env
 
@@ -26,13 +27,16 @@ async def cmd_stop(ctx: CommandContext) -> OutboundMessage:
 
 
 async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
-    """Restart the process in-place via os.execv."""
+    """Restart the gateway through the platform layer."""
     msg = ctx.msg
     set_restart_notice_to_env(channel=msg.channel, chat_id=msg.chat_id)
 
     async def _do_restart():
         await asyncio.sleep(1)
-        os.execv(sys.executable, [sys.executable, "-m", "homebot"] + sys.argv[1:])
+        # POSIX replaces the process in place; Windows exits and lets the
+        # supervisor (the launcher / Task Scheduler task) start a fresh one,
+        # because os.execv there would race the new process for the HTTP port.
+        restart_in_place([sys.executable, "-m", "homebot"] + sys.argv[1:])
 
     asyncio.create_task(_do_restart())
     return OutboundMessage(

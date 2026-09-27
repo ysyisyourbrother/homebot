@@ -6,7 +6,11 @@ import subprocess
 import sys
 import time
 
-from homebot.utils.platform import default_chrome_path
+from homebot.system import (
+    default_chrome_path,
+    find_pids,
+    terminate_pids,
+)
 
 _DEFAULT_EXECUTABLE_PATH = default_chrome_path()
 
@@ -73,27 +77,15 @@ def wake_homebot_chrome() -> None:
 
 
 def close_homebot_chrome() -> None:
-    user_data_arg = f"--user-data-dir={browser_data_dir()}"
-    profile_arg = f"--profile-directory={browser_profile()}"
-    result = subprocess.run(
-        ["pgrep", "-f", f"^{browser_executable_path()} .*{user_data_arg}.*{profile_arg}"],
-        capture_output=True,
-        text=True,
-    )
-    pids = [int(pid) for pid in result.stdout.split()]
-    for pid in pids:
-        os.kill(pid, 15)
-    for _ in range(20):
-        alive = []
-        for pid in pids:
-            try:
-                os.kill(pid, 0)
-                alive.append(pid)
-            except ProcessLookupError:
-                pass
-        if not alive:
-            break
-        time.sleep(0.05)
+    """Stop the Homebot Chrome instance.
+
+    Finding and stopping processes differs per OS (pgrep/SIGTERM vs
+    CIM/taskkill); that difference lives in homebot.system, not here.
+    """
+    signature = f"{browser_executable_path()} --user-data-dir={browser_data_dir()}"
+    pids = find_pids(signature)
+    if pids:
+        terminate_pids(pids)
 
 
 def opencli(command: list[str], env: dict[str, str]) -> str:

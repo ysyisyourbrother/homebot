@@ -10,6 +10,7 @@ from typing import Any
 from homebot.agent.tools.base import Tool, tool_parameters
 from homebot.agent.tools.schema import BooleanSchema, IntegerSchema, StringSchema, tool_parameters_schema
 from homebot.agent.tools import file_state
+from homebot.system import is_blocked_device
 from homebot.utils.helpers import build_image_content_blocks, detect_image_mime
 from homebot.config.paths import get_media_dir
 
@@ -63,38 +64,6 @@ class _FsTool(Tool):
 # ---------------------------------------------------------------------------
 
 
-_BLOCKED_DEVICE_PATHS = frozenset({
-    "/dev/zero", "/dev/random", "/dev/urandom", "/dev/full",
-    "/dev/stdin", "/dev/stdout", "/dev/stderr",
-    "/dev/tty", "/dev/console",
-    "/dev/fd/0", "/dev/fd/1", "/dev/fd/2",
-})
-
-
-def _is_blocked_device(path: str | Path) -> bool:
-    """Check if path is a blocked device that could hang or produce infinite output."""
-    import re
-    raw = str(path)
-
-    # Resolve symlinks to check the actual target
-    try:
-        resolved = str(Path(raw).resolve())
-    except (OSError, ValueError):
-        resolved = raw
-
-    if raw in _BLOCKED_DEVICE_PATHS or resolved in _BLOCKED_DEVICE_PATHS:
-        return True
-    if re.match(r"/proc/\d+/fd/[012]$", raw) or re.match(r"/proc/self/fd/[012]$", raw):
-        return True
-    if re.match(r"/proc/\d+/fd/[012]$", resolved) or re.match(r"/proc/self/fd/[012]$", resolved):
-        return True
-
-    # Check if resolved path starts with /dev/ (covers symlinks to devices)
-    if resolved.startswith("/dev/"):
-        return True
-    return False
-
-
 # ---------------------------------------------------------------------------
 # read_file
 # ---------------------------------------------------------------------------
@@ -144,11 +113,11 @@ class ReadFileTool(_FsTool):
                 return "Error reading file: Unknown path"
 
             # Device path blacklist
-            if _is_blocked_device(path):
+            if is_blocked_device(path):
                 return f"Error: Reading {path} is blocked (device path that could hang or produce infinite output)."
 
             fp = self._resolve(path)
-            if _is_blocked_device(fp):
+            if is_blocked_device(fp):
                 return f"Error: Reading {fp} is blocked (device path that could hang or produce infinite output)."
             if not fp.exists():
                 return f"Error: File not found: {path}"
