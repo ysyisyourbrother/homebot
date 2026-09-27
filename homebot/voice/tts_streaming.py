@@ -2,6 +2,7 @@
 
 import collections
 import threading
+import time
 
 import dashscope
 import numpy as np
@@ -58,6 +59,14 @@ class StreamingTTS:
         self._synthesizer: SpeechSynthesizer | None = None
         self._stream: sd.OutputStream | None = None
 
+        # One speaking turn runs from the first feed_text to the matching
+        # flush.  Tracking it explicitly (instead of testing for a missing
+        # synthesizer) keeps a mid-turn failure from looking like a brand new
+        # turn and reconnecting over and over.
+        self._turn_open = False
+        self._retries = 2
+        self._retry_delay = 1.0
+
     # ---- public API --------------------------------------------------
 
     def start(self) -> None:
@@ -80,46 +89,76 @@ class StreamingTTS:
 
     def feed_text(self, text: str) -> None:
         """Send a text chunk for synthesis.  Creates the synthesizer lazily."""
+        if not self._turn_open:
+            # New turn: start from a clean slate.  Without this a single
+            # transient failure silenced every later reply until restart.
+            self._turn_open = True
+            self._error = None
+            self._draining = False
+            self._all_done.clear()
+
         if self._error:
             return
 
-        if self._synthesizer is None:
-            self._draining = False
-            self._all_done.clear()
-            self._synthesizer = SpeechSynthesizer(
-                model=self._model,
-                voice=self._voice,
-                format=AudioFormat.PCM_24000HZ_MONO_16BIT,
-                callback=_TTSCallback(self),
-            )
-
-        synthesizer = self._synthesizer
-        try:
-            synthesizer.streaming_call(text)
-        except Exception as exc:
-            logger.warning("StreamingTTS: streaming_call failed: {}", exc)
-            self._error = str(exc)
+        for attempt in range(1, self._retries + 1):
+            if self._synthesizer is None:
+                self._synthesizer = SpeechSynthesizer(
+                    model=self._model,
+                    voice=self._voice,
+                    format=AudioFormat.PCM_24000HZ_MONO_16BIT,
+                    callback=_TTSCallback(self),
+                )
+            try:
+                self._synthesizer.streaming_call(text)
+                return
+            except Exception as exc:
+                logger.warning(
+                    "StreamingTTS: streaming_call failed (attempt {}/{}): {}",
+                    attempt,
+                    self._retries,
+                    exc,
+                )
+                self._discard_synthesizer()
+                if attempt < self._retries:
+                    time.sleep(self._retry_delay)
+        self._error = "streaming_call failed after retries"
 
     def flush(self) -> None:
         """Signal end-of-input, wait for audio to drain, then close the synthesizer."""
         synthesizer = self._synthesizer
-        if self._error or synthesizer is None:
-            return
-
         try:
-            synthesizer.streaming_complete()
-        except Exception as exc:
-            msg = str(exc)
-            if "has not been started" in msg:
+            if synthesizer is None:
                 return
-            logger.warning("StreamingTTS: streaming_complete failed: {}", exc)
-            self._error = msg
-            return
+            if self._error:
+                logger.warning("StreamingTTS: turn produced no audio: {}", self._error)
+                return
+            try:
+                synthesizer.streaming_complete()
+            except Exception as exc:
+                msg = str(exc)
+                if "has not been started" in msg:
+                    return
+                logger.warning("StreamingTTS: streaming_complete failed: {}", exc)
+                return
+            self._all_done.wait()
+            if self._error:
+                logger.warning("StreamingTTS: playback ended early: {}", self._error)
+        finally:
+            # Either way the turn is over: drop the synthesizer and forget the
+            # per-turn error so the next reply starts from a clean slate.
+            self._discard_synthesizer()
+            self._turn_open = False
+            self._error = None
 
-        self._all_done.wait()
-        synthesizer.close()
-        if self._synthesizer is synthesizer:
-            self._synthesizer = None  # will be recreated on next feed_text
+    def _discard_synthesizer(self) -> None:
+        """Drop the current synthesizer, closing it if it is still around."""
+        synthesizer, self._synthesizer = self._synthesizer, None
+        if synthesizer is None:
+            return
+        try:
+            synthesizer.close()
+        except Exception:
+            pass
 
     def stop(self) -> None:
         """Cancel synthesis and close both synthesizer and output stream."""
