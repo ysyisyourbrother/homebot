@@ -167,9 +167,13 @@ class ExecTool(Tool):
     ) -> asyncio.subprocess.Process:
         """Launch *command* in a platform-appropriate shell."""
         if _IS_WINDOWS:
-            comspec = env.get("COMSPEC", os.environ.get("COMSPEC", "cmd.exe"))
-            return await asyncio.create_subprocess_exec(
-                comspec, "/c", command,
+            # shell=True keeps the command string verbatim for cmd.exe.  Passing
+            # it as an argv element instead lets CPython escape the inner quotes
+            # as \" (list2cmdline), which cmd.exe does not understand -- it then
+            # tries to run `\"C:\path\python.exe\"` and every quoted command
+            # fails, which sent the agent into a retry loop on 2026-09-27.
+            return await asyncio.create_subprocess_shell(
+                command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -227,6 +231,10 @@ class ExecTool(Tool):
                 "ProgramFiles": os.environ.get("ProgramFiles", ""),
                 "ProgramFiles(x86)": os.environ.get("ProgramFiles(x86)", ""),
                 "ProgramW6432": os.environ.get("ProgramW6432", ""),
+                # Output is decoded as UTF-8 below; without this, Python writes
+                # GBK to the pipe on a Chinese Windows and every non-ASCII
+                # character in a skill's output turns into mojibake.
+                "PYTHONIOENCODING": "utf-8",
             }
             for key in self.allowed_env_keys:
                 val = os.environ.get(key)
