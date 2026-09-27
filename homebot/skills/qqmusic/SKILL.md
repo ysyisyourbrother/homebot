@@ -13,7 +13,15 @@ metadata: {"homebot":{"requires":{"bins":["curl"]}}}
 
 ### 搜索
 
-用户要搜歌时，参考 discover.md 调 `/discover/search`，结果用编号列表展示（歌名 + 歌手）。
+用脚本搜索（**不要手写 curl 一行命令**：Windows 的 cmd.exe 会把转义引号原样传下去，中文也会被转成 GBK，命令必然失败并让你陷入反复重试）：
+
+```bash
+python <脚本路径> "周杰伦 晴天"
+```
+
+脚本路径 = 把当前文件的 `SKILL.md` 替换为 `scripts/search.py`。脚本自己从环境变量读
+`QQMUSIC_API_KEY`，输出编号列表（歌名 - 歌手 songMid=...）。把列表转述给用户，
+`songMid` 留给播放步骤使用。
 
 ### 播放
 
@@ -32,13 +40,14 @@ metadata: {"homebot":{"requires":{"bins":["curl"]}}}
 ## 接口规范
 
 - Base URL: `https://a.y.qq.com`
-- 鉴权: `Authorization: Bearer $QQMUSIC_API_KEY`
+- 鉴权: `Authorization: Bearer $QQMUSIC_API_KEY`（由脚本自动附带，**不要把 Key 写进命令行或回复里**）
 - 所有请求必须带 `"comm": {"skill_version": "0.0.6"}`
 - 业务参数用 `params` 包裹
+- 请求体必须是 UTF-8 编码的 JSON：在 Windows 上用 curl 的 `-d` 传中文会被转成 GBK，
+  服务端会返回"请求参数类型不对"。所以搜索统一走 `scripts/search.py`。
 
-```bash
-curl -X POST "${BaseUrl}/discover/search" \
-  -H "Authorization: Bearer $QQMUSIC_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"params": {"keyword": "周杰伦", "type": "0"}, "comm": {"skill_version": "0.0.6"}}'
-```
+## 失败处理
+
+- `scripts/search.py` 退出码非 0 时，把它 stderr 里的原文作为失败原因告诉用户，**最多再试一次**。
+- 连续失败就直接如实回复失败，不要再换写法反复执行同一条命令——那会陷入死循环并大量消耗调用。
+- 任何情况下都不要把 API Key 写进命令行（环境变量由 exec 白名单透传）。
