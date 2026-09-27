@@ -91,18 +91,26 @@ class VoiceChannelTest(unittest.IsolatedAsyncioTestCase):
         self.channel._recognition_generation = 1
 
     async def test_wav_prompt_uses_configured_output_device(self) -> None:
+        """The configured output device must reach the prompt player.
+
+        Prompt playback owns its stream (see channels/voice.py::_play_pcm_sync)
+        instead of calling sounddevice.play, so the seam to check is the resolver
+        plus the player that receives the resolved device.
+        """
         channel = VoiceChannel(VoiceConfig(output_device="USB Speaker"), MessageBus())
-        with patch("sounddevice.play") as play:
+        played: dict[str, object] = {}
+
+        def fake_play_pcm(samples, samplerate, device, cancel=None):  # noqa: ANN001
+            played["device"] = device
+            played["samplerate"] = samplerate
+            return True
+
+        with patch(
+            "homebot.channels.voice._resolve_device", return_value="USB Speaker"
+        ), patch("homebot.channels.voice._play_pcm_sync", side_effect=fake_play_pcm):
             await channel._play_file(Path("homebot/voice/assets/audio/wake_reply.wav"))
 
-        self.assertEqual(play.call_args.kwargs["device"], "USB Speaker")
-
-    async def test_wav_prompt_uses_configured_output_device(self) -> None:
-        channel = VoiceChannel(VoiceConfig(output_device="USB Speaker"), MessageBus())
-        with patch("sounddevice.play") as play:
-            await channel._play_file(Path("homebot/voice/assets/audio/wake_reply.wav"))
-
-        self.assertEqual(play.call_args.kwargs["device"], "USB Speaker")
+        self.assertEqual(played["device"], "USB Speaker")
 
     def test_voice_contract_is_system_prompt_not_user_history(self) -> None:
         with TemporaryDirectory() as workspace:

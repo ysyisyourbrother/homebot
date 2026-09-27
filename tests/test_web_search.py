@@ -40,7 +40,12 @@ class WebSearchToolTest(unittest.IsolatedAsyncioTestCase):
 class WebSearchConfigCliTest(unittest.TestCase):
     def test_configures_tavily_search(self) -> None:
         config = Config()
-        answers = iter(["", "yes", "tvly-test", "", "", "", "", ""])
+        answers = iter([
+            "2",          # 工具菜单 -> Web Search
+            "yes",        # Web Search enable
+            "tvly-test",  # Tavily API Key
+            "0",          # 返回上级菜单
+        ])
 
         with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
             _configure_tools(config)

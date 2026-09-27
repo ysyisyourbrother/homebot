@@ -69,15 +69,14 @@ class VoiceAudioDevicesCliTest(unittest.TestCase):
     def test_configures_browser_session_refresh(self) -> None:
         config = Config()
         answers = iter([
-            "",       # Web Fetch enable
-            "",       # Web Search enable
-            "",       # Shell Exec enable
+            "4",      # 工具菜单 -> Browser
             "yes",    # Browser enable
             "",       # Browser executable path (keep default)
             "",       # User Data Directory (keep default)
             "",       # Browser profile (keep default "Homebot")
             "https://y.qq.com/, https://www.xiaohongshu.com/",  # Session refresh URLs
             "48",     # Session refresh interval hours
+            "0",      # 返回上级菜单
         ])
 
         with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
@@ -96,7 +95,16 @@ class VoiceAudioDevicesCliTest(unittest.TestCase):
     def test_clears_browser_session_refresh_urls(self) -> None:
         config = Config()
         config.tools.browser.session_refresh.urls = ["https://y.qq.com/"]
-        answers = iter(["", "", "", "", "", "", "", "none", ""])
+        answers = iter([
+            "4",     # 工具菜单 -> Browser
+            "",      # Browser enable (keep)
+            "",      # executable path (keep)
+            "",      # user data dir (keep)
+            "",      # profile (keep)
+            "none",  # 清空 Session Refresh URLs
+            "",      # interval (keep 72)
+            "0",     # 返回上级菜单
+        ])
 
         with patch("builtins.input", side_effect=lambda _prompt: next(answers)):
             _configure_tools(config)

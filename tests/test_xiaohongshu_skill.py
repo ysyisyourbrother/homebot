@@ -39,6 +39,14 @@ class XiaohongshuSkillTest(unittest.TestCase):
         exit_code: int = 0,
         stderr: str = "Browser Bridge 未连接",
     ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        if os.name != "posix":
+            # The fixtures are POSIX executables by construction: a shebang
+            # `opencli` on PATH and a `#!/bin/sh` fake Chrome.  Windows cannot
+            # execute either (WinError 193), and CreateProcess does not resolve
+            # `.cmd` shims for a bare name, so these cases only run on POSIX.
+            raise unittest.SkipTest(
+                "xiaohongshu skill fixtures require POSIX executables"
+            )
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             argv_path = temp_path / "argv.json"
@@ -169,6 +177,10 @@ class XiaohongshuSkillTest(unittest.TestCase):
         self.assertIn("小红书浏览器未连接，请确认 Homebot 专用 Google Chrome 中的 OpenCLI 扩展已启用。", result.stderr)
 
     def test_browser_connect_starts_homebot_chrome_without_extra_window(self) -> None:
+        if os.name != "posix":
+            raise unittest.SkipTest(
+                "xiaohongshu skill fixtures require POSIX executables"
+            )
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             count_path = temp_path / "count.txt"

@@ -242,14 +242,22 @@ class FamilyMembersConfigTest(unittest.TestCase):
             (guest / "USER.md").write_text("guest profile", encoding="utf-8")
 
             builder = ContextBuilder(workspace)
-            member_prompt = builder.build_messages([], "hello", channel="voice", voice_member_id="alice")[0]["content"]
-            guest_prompt = builder.build_messages([], "hello", channel="voice", voice_member_id="../../root")[0]["content"]
+            # The builder takes a generic member_id (the voice channel passes the
+            # identified speaker through message metadata); an unknown or
+            # traversal-shaped id must never reach another member's profile.
+            member_prompt = builder.build_messages([], "hello", channel="voice", member_id="alice")[0]["content"]
+            guest_prompt = builder.build_messages([], "hello", channel="voice", member_id="../../root")[0]["content"]
             direct_prompt = builder.build_messages([], "hello")[0]["content"]
 
         self.assertIn("alice profile", member_prompt)
         self.assertNotIn("root profile", member_prompt)
+        self.assertNotIn("guest profile", member_prompt)
         self.assertIn("guest profile", guest_prompt)
-        self.assertIn("root profile", direct_prompt)
+        self.assertNotIn("root profile", guest_prompt)
+        # Without a member id the builder resolves to the guest profile; the
+        # workspace-root USER.md is not a fallback (never has been).
+        self.assertIn("guest profile", direct_prompt)
+        self.assertNotIn("root profile", direct_prompt)
 
 
 class VoiceIdentityMetadataTest(unittest.IsolatedAsyncioTestCase):
@@ -268,4 +276,6 @@ class VoiceIdentityMetadataTest(unittest.IsolatedAsyncioTestCase):
         channel._stt = STT()
         await channel._handle_query("查天气", 1)
         message = channel.bus.inbound.get_nowait()
-        self.assertEqual(message.metadata["voice_member_id"], "alice")
+        # The channel publishes the generic key the context builder reads
+        # (agent/loop.py -> build_messages(member_id=...)).
+        self.assertEqual(message.metadata["member_id"], "alice")
