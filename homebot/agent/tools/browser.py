@@ -40,6 +40,23 @@ _TRANSIENT_NAV_ERRORS = (
     "ERR_NAME_NOT_RESOLVED",
 )
 
+# Chromium reports these when the cached context/browser is already dead.
+# Left alone, the tool keeps reusing the corpse and every later call fails with
+# "Failed to open a new tab" until the gateway restarts (2026-09-27 22:56).
+_DEAD_CONTEXT_ERRORS = (
+    "Target page, context or browser has been closed",
+    "Target closed",
+    "Browser has been closed",
+    "Failed to open a new tab",
+    "Target.createTarget",
+    "browserContext.newPage",
+)
+
+
+def _is_dead_context_error(exc: BaseException) -> bool:
+    message = str(exc)
+    return any(token in message for token in _DEAD_CONTEXT_ERRORS)
+
 
 class BrowserActionError(RuntimeError):
     def __init__(self, code: str, detail: str):
@@ -128,40 +145,73 @@ class BrowserTool(Tool):
 
         timeout = timeout_seconds or self._timeout_seconds
         async with self._lock:
-            try:
-                async with asyncio.timeout(timeout):
-                    await self._ensure_context()
-                    if action == "open":
-                        return await self._open(url, timeout)
+            # A dead context is retried once with a freshly launched browser.
+            # The first attempt gets twice the caller's budget so the in-goto
+            # retry in _goto_with_retry actually fits.
+            for attempt in (1, 2):
+                budget = timeout * 2 if attempt == 1 else timeout
+                try:
+                    async with asyncio.timeout(budget):
+                        await self._ensure_context()
+                        result = await self._perform(
+                            action, url, page_id, selector, state,
+                            result_selector, result_state, timeout,
+                        )
+                    if result is not None:
+                        return result
+                    return self._error("PAGE_NOT_FOUND", f"No open Homebot page has ID {page_id}")
+                except asyncio.TimeoutError:
+                    return self._error("TIMEOUT", f"{action} did not complete within {budget:g} seconds")
+                except BrowserActionError as exc:
+                    return self._error(exc.code, str(exc))
+                except PlaywrightTimeoutError:
+                    return self._error("TIMEOUT", f"{action} did not reach the requested state within {timeout:g} seconds")
+                except FileNotFoundError as exc:
+                    return self._error("CHROME_NOT_FOUND", str(exc))
+                except RuntimeError as exc:
+                    return self._error("BROWSER_UNAVAILABLE", str(exc))
+                except Exception as exc:
+                    if attempt == 1 and _is_dead_context_error(exc):
+                        logger.warning(
+                            "Browser: context is dead ({}), relaunching and retrying once",
+                            str(exc).splitlines()[0] if str(exc) else type(exc).__name__,
+                        )
+                        await self._recover_context()
+                        continue
+                    return self._error("BROWSER_ACTION_FAILED", str(exc))
+            return self._error("BROWSER_ACTION_FAILED", "browser retry did not run")
 
-                    page = self._get_page(page_id)
-                    if page is None:
-                        return self._error("PAGE_NOT_FOUND", f"No open Homebot page has ID {page_id}")
-                    if action == "wait":
-                        observed = await self._wait_for(page, selector, state, timeout)
-                        return await self._success(action, page_id, page, observed)
-                    if action == "inspect":
-                        observed = await self._inspect(page, selector)
-                        return await self._success(action, page_id, page, observed)
+    async def _perform(
+        self,
+        action: str,
+        url: str,
+        page_id: str,
+        selector: str,
+        state: str,
+        result_selector: str,
+        result_state: str,
+        timeout: float,
+    ) -> str | None:
+        """Run one action against the live context; None means "page missing"."""
+        if action == "open":
+            return await self._open(url, timeout)
 
-                    await page.bring_to_front()
-                    await self._click(page, selector, timeout)
-                    observed: dict[str, Any] = {"clicked": selector}
-                    if result_selector:
-                        observed["result"] = await self._wait_for(page, result_selector, result_state, timeout)
-                    return await self._success(action, page_id, page, observed)
-            except asyncio.TimeoutError:
-                return self._error("TIMEOUT", f"{action} did not complete within {timeout} seconds")
-            except BrowserActionError as exc:
-                return self._error(exc.code, str(exc))
-            except PlaywrightTimeoutError:
-                return self._error("TIMEOUT", f"{action} did not reach the requested state within {timeout} seconds")
-            except FileNotFoundError as exc:
-                return self._error("CHROME_NOT_FOUND", str(exc))
-            except RuntimeError as exc:
-                return self._error("BROWSER_UNAVAILABLE", str(exc))
-            except Exception as exc:
-                return self._error("BROWSER_ACTION_FAILED", str(exc))
+        page = self._get_page(page_id)
+        if page is None:
+            return None
+        if action == "wait":
+            observed = await self._wait_for(page, selector, state, timeout)
+            return await self._success(action, page_id, page, observed)
+        if action == "inspect":
+            observed = await self._inspect(page, selector)
+            return await self._success(action, page_id, page, observed)
+
+        await page.bring_to_front()
+        await self._click(page, selector, timeout)
+        observed: dict[str, Any] = {"clicked": selector}
+        if result_selector:
+            observed["result"] = await self._wait_for(page, result_selector, result_state, timeout)
+        return await self._success(action, page_id, page, observed)
 
     async def refresh_sessions(self, urls: list[str]) -> None:
         """Refresh website sessions in temporary pages using the persistent profile."""
@@ -246,13 +296,25 @@ class BrowserTool(Tool):
             self._page_id(page)
 
     async def _is_context_alive(self) -> bool:
-        """Check whether the persistent browser context is still responsive."""
+        """Check whether the persistent browser context is still usable.
+
+        ``context.pages`` is not enough on its own: it still returns a list
+        after the underlying browser process died, which is how the tool ended
+        up caching a dead context and failing every later call.
+        """
         try:
             # Accessing .pages on a closed browser raises TargetClosedError
             _ = self._context.pages
+            browser = getattr(self._context, "browser", None)
+            if browser is not None and not browser.is_connected():
+                return False
             return True
         except Exception:
             return False
+
+    async def _recover_context(self) -> None:
+        """Drop the cached context so the next call launches a fresh browser."""
+        await self._teardown_context()
 
     async def _teardown_context(self) -> None:
         """Clean up a dead browser context and its Playwright runtime."""
@@ -291,7 +353,7 @@ class BrowserTool(Tool):
         return await self._success("open", page_id, page, {"ready_state": await page.evaluate("document.readyState")})
 
     async def _goto_with_retry(
-        self, page: Any, url: str, timeout: float, attempts: int = 3
+        self, page: Any, url: str, timeout: float, attempts: int = 2
     ) -> None:
         """Navigate, retrying the transient errors Chromium reports on first try.
 
