@@ -16,7 +16,10 @@ class RealtimeSTT:
         api_key: str,
         *,
         sample_rate: int = 16000,
-        max_sentence_silence: int = 2000,
+        # DashScope only emits the final sentence after this much silence, so it is
+        # paid as latency on every turn.  2000 was long enough that a finished
+        # question felt stuck; 1500 still leaves room for a short thinking pause.
+        max_sentence_silence: int = 1500,
         silence_timeout: float = 5.0,
         on_sentence_end: callable = None,
     ):
