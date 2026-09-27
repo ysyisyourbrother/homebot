@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import threading
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -103,6 +104,74 @@ def _load_reminder_wav() -> tuple[Any, int] | None:
 
 
 _REMINDER_PCM: tuple[Any, int] | None = None  # (ndarray, sample_rate)
+
+
+def _play_pcm_sync(
+    samples: Any,
+    samplerate: int,
+    device: str | None,
+    cancel: threading.Event | None = None,
+) -> bool:
+    """Play int16 PCM on a dedicated output stream. Returns False if cancelled.
+
+    ``sd.play`` must not be used for overlapping playbacks -- its own docs say
+    it first calls ``stop()`` on whatever is already running, i.e. a second
+    call tears down the first one's stream from another thread.  Doing that
+    from two coroutines at once corrupted the native heap and killed the
+    gateway on 2026-09-27 (reproduced with the same stack hash).
+
+    The stream is owned and closed by this thread only, and a prompt is
+    stopped from *inside* the audio callback (CallbackAbort / CallbackStop)
+    rather than by poking the stream from outside, which is what triggers the
+    native crash.  That is how a wake word cuts the farewell short.
+    """
+    import sounddevice as sd
+
+    channels = 1 if samples.ndim == 1 else samples.shape[1]
+    state = {"pos": 0, "cancelled": False}
+    finished = threading.Event()
+
+    def callback(outdata: Any, frames: int, _time: Any, _status: Any) -> None:
+        if cancel is not None and cancel.is_set():
+            state["cancelled"] = True
+            raise sd.CallbackAbort
+        pos = state["pos"]
+        chunk = samples[pos : pos + frames]
+        count = len(chunk)
+        if count:
+            if chunk.ndim == 1:
+                outdata[:count, 0] = chunk
+            else:
+                outdata[:count] = chunk
+            state["pos"] = pos + count
+        if count < frames:
+            # Last buffer (padded with silence); let PortAudio play it out.
+            outdata[count:] = 0
+            raise sd.CallbackStop
+
+    def finished_callback() -> None:
+        finished.set()
+
+    stream = sd.OutputStream(
+        samplerate=samplerate,
+        channels=channels,
+        dtype="int16",
+        device=device,
+        # "low" halves how long a wake word waits for the farewell to stop
+        # (measured 330 ms -> 175 ms on the eMeet A300 / DirectSound).
+        latency="low",
+        callback=callback,
+        finished_callback=finished_callback,
+    )
+    stream.start()
+    try:
+        duration = len(samples) / samplerate
+        if not finished.wait(timeout=duration + 5.0):
+            logger.warning("Voice: prompt playback did not finish in time")
+            return False
+        return not state["cancelled"]
+    finally:
+        stream.close()
 
 
 class VoiceReply(PydanticBaseModel):
@@ -259,6 +328,13 @@ class VoiceChannel(BaseChannel):
         self._closed_stream_ids: set[str] = set()
         self._buf: str = ""
         self._reply_parser = ReplyStreamParser()
+
+        # Prompt playback (wake reply / farewell / beep / reminder music) is
+        # serialized by this lock and can be aborted through the event, so two
+        # prompts can never share the output device and a wake word can cut a
+        # farewell short.
+        self._prompt_lock = asyncio.Lock()
+        self._prompt_cancel = threading.Event()
 
     @property
     def supports_streaming(self) -> bool:
@@ -440,20 +516,17 @@ class VoiceChannel(BaseChannel):
         """Play a 5 s segment of the reminder background music via sounddevice."""
         if self._reminder_pcm is None:
             return
-        import sounddevice as sd
         data, sr = self._reminder_pcm
-        chunk_len = int(5 * sr)
-        chunk = data[:chunk_len]
-        try:
-            await asyncio.to_thread(
-                sd.play,
-                chunk,
-                sr,
-                device=_resolve_device(self.config.output_device, "output"),
-                blocking=True,
-            )
-        except Exception as e:
-            logger.warning("Voice: sd.play reminder audio failed: {}", e)
+        chunk = data[: int(5 * sr)]
+        device = _resolve_device(self.config.output_device, "output")
+        async with self._prompt_lock:
+            self._prompt_cancel.clear()
+            try:
+                await asyncio.to_thread(
+                    _play_pcm_sync, chunk, sr, device, self._prompt_cancel
+                )
+            except Exception as e:
+                logger.warning("Voice: reminder audio playback failed: {}", e)
 
     async def send_delta(self, chat_id: str, delta: str, metadata: dict[str, Any] | None = None) -> None:
         """Receive streaming output for the active voice interaction."""
@@ -629,6 +702,11 @@ class VoiceChannel(BaseChannel):
         # Switch to PLAYING so mic input is discarded during wake sound
         self._state = VoiceState.PLAYING
 
+        # If the farewell or the "next turn" beep is still playing, cut it off.
+        # _play_file waits for the lock that playback holds, so the two never
+        # overlap (overlapping sd.play calls corrupted the heap on 2026-09-27).
+        self._interrupt_prompt()
+
         # Start STT first so it connects while the wake reply plays
         self._recognition_generation = self._stt.start(
             silence_timeout=self.config.silence_timeout
@@ -650,12 +728,16 @@ class VoiceChannel(BaseChannel):
         if self._state != VoiceState.RECOGNIZING:
             return
         self._clear_interaction()
+        # Stay in LISTENING rather than PLAYING so a wake word can interrupt
+        # the farewell; playback is serialized, so that is safe now.
         self._state = VoiceState.LISTENING
         bye = _resolve_voice_dir(self.config) / "audio" / "bye.wav"
         if not bye.exists():
             bye = _ASSETS_DIR / "audio" / "bye.wav"
-        await self._play_file(bye)
-        logger.info("Voice: back to listening (dialogue timeout)")
+        if await self._play_file(bye):
+            logger.info("Voice: back to listening (dialogue timeout)")
+        else:
+            logger.info("Voice: farewell interrupted by wake word")
 
     # Called from STT callback thread
     def _on_sentence_end(self, text: str, generation: int) -> None:
@@ -681,11 +763,13 @@ class VoiceChannel(BaseChannel):
         if clean in self.config.exit_commands:
             logger.info("Voice: exit command received '{}'", clean)
             self._clear_interaction()
+            # LISTENING (not PLAYING) so a wake word can cut the farewell short.
             self._state = VoiceState.LISTENING
             bye = _resolve_voice_dir(self.config) / "audio" / "bye.wav"
             if not bye.exists():
                 bye = _ASSETS_DIR / "audio" / "bye.wav"
-            await self._play_file(bye)
+            if not await self._play_file(bye):
+                logger.info("Voice: farewell interrupted by wake word")
             return
 
         self._stream_id = None
@@ -784,14 +868,21 @@ class VoiceChannel(BaseChannel):
     # Helpers
     # ------------------------------------------------------------------
 
-    async def _play_file(self, path: Path) -> None:
-        """Play a WAV prompt on the configured output device."""
+    def _interrupt_prompt(self) -> None:
+        """Ask an in-flight prompt to stop (a wake word won the race)."""
+        self._prompt_cancel.set()
+
+    async def _play_file(self, path: Path) -> bool:
+        """Play a WAV prompt on the configured output device.
+
+        Returns True when the prompt played to the end, False when it was cut
+        short by :meth:`_interrupt_prompt`.
+        """
         if not path.exists():
-            return
+            return True
         import wave
 
         import numpy as np
-        import sounddevice as sd
 
         with wave.open(str(path), "rb") as f:
             data = np.frombuffer(f.readframes(f.getnframes()), dtype=np.int16).copy()
@@ -799,16 +890,17 @@ class VoiceChannel(BaseChannel):
             sample_rate = f.getframerate()
         if channels > 1:
             data = data.reshape(-1, channels)
-        try:
-            await asyncio.to_thread(
-                sd.play,
-                data,
-                sample_rate,
-                device=_resolve_device(self.config.output_device, "output"),
-                blocking=True,
-            )
-        except Exception as e:
-            logger.warning("Voice: prompt playback failed: {}", e)
+        device = _resolve_device(self.config.output_device, "output")
+
+        async with self._prompt_lock:
+            self._prompt_cancel.clear()
+            try:
+                return await asyncio.to_thread(
+                    _play_pcm_sync, data, sample_rate, device, self._prompt_cancel
+                )
+            except Exception as e:
+                logger.warning("Voice: prompt playback failed: {}", e)
+                return True
 
 
 def _check_dependencies() -> None:
