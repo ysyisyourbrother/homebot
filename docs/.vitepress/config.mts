@@ -22,6 +22,7 @@ export default defineConfig({
           { text: "内置 Skills", link: "/skills/index.html" },
           { text: "语音设置", link: "/voice/wake-word.html" },
           { text: "消息通道", link: "/channels/feishu.html" },
+          { text: "架构说明", link: "/architecture/index.html" },
         ],
       },
     ],
@@ -81,6 +82,15 @@ export default defineConfig({
           items: [
             { text: "飞书 Feishu", link: "/channels/feishu.html" },
             { text: "Telegram", link: "/channels/telegram.html" },
+          ],
+        },
+        {
+          text: "架构说明",
+          collapsible: true,
+          collapsed: true,
+          items: [
+            { text: "架构总览", link: "/architecture/index.html" },
+            { text: "跨平台支持（macOS / Windows）", link: "/architecture/platform-support.html" },
           ],
         },
       ],
