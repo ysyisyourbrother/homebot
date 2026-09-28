@@ -35,6 +35,9 @@ class StreamingTTS:
     and closed after :meth:`flush`, so a fresh WebSocket handles the next turn.
     """
 
+    # Upper bound for draining one turn's audio; see flush().
+    _FLUSH_TIMEOUT = 120.0
+
     def __init__(
         self,
         *,
@@ -140,7 +143,15 @@ class StreamingTTS:
                     return
                 logger.warning("StreamingTTS: streaming_complete failed: {}", exc)
                 return
-            self._all_done.wait()
+            # A websocket that dies mid-stream can leave the drain event unset
+            # forever, which would park the voice channel in PLAYING (microphone
+            # discarded) for good.  Give up instead -- the turn then ends.
+            if not self._all_done.wait(timeout=self._FLUSH_TIMEOUT):
+                logger.warning(
+                    "StreamingTTS: audio did not drain within {:.0f}s; ending this turn",
+                    self._FLUSH_TIMEOUT,
+                )
+                return
             if self._error:
                 logger.warning("StreamingTTS: playback ended early: {}", self._error)
         finally:

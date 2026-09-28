@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -317,8 +318,10 @@ class VoiceChannel(BaseChannel):
         # Thread bridge
         self._loop: asyncio.AbstractEventLoop | None = None
 
-        # State
-        self._state = VoiceState.STOPPED
+        # State.  _state_since is maintained by the setter below; the watchdog
+        # uses it to notice a state machine that never came back to LISTENING.
+        self._state_since = time.monotonic()
+        self._state_value = VoiceState.STOPPED
         self._stream: Any = None  # sounddevice.InputStream
         self._current_chat_id: str | None = None
         self._session_key: str | None = None
@@ -335,6 +338,49 @@ class VoiceChannel(BaseChannel):
         # farewell short.
         self._prompt_lock = asyncio.Lock()
         self._prompt_cancel = threading.Event()
+
+        # Audio pipeline health tracking (see the watchdog section below).
+        self._last_callback_at = 0.0   # monotonic time of the last audio callback
+        self._last_signal_at = 0.0     # ... of the last callback carrying any signal
+        self._stream_opened_at = 0.0   # for the periodic proactive recycle
+        self._last_recycle_at = 0.0
+        self._silent_recycles = 0
+        self._watchdog_ticks = 0
+        self._watchdog_task: asyncio.Task | None = None
+
+    # ------------------------------------------------------------------
+    # Audio pipeline health
+    # ------------------------------------------------------------------
+    #
+    # Always-on wake-word detection has two silent failure modes that look
+    # identical from the outside ("it just stopped listening"):
+    #
+    #   * the audio stream keeps firing callbacks but delivers pure silence,
+    #     because the endpoint was invalidated underneath us, and
+    #   * a coroutine dies half-way through a state change, parking the state
+    #     machine outside LISTENING so microphone input is discarded forever.
+    #
+    # Both leave the process healthy and the log empty.  The watchdog watches
+    # callback liveness, digital silence, stream age and state age; it reopens
+    # the stream (or forces LISTENING) when a bound is crossed, and it logs a
+    # heartbeat so the next failure leaves a trace to diagnose.
+    _WATCHDOG_INTERVAL = 15.0
+    _CALLBACK_STALL_SECONDS = 5.0
+    _DIGITAL_SILENCE_SECONDS = 300.0   # 5 min of *exact* zeros is not a room
+    _STREAM_MAX_AGE_SECONDS = 6 * 3600.0
+    _STATE_STUCK_SECONDS = 90.0
+    _RECYCLE_COOLDOWN_SECONDS = 120.0
+    _HEARTBEAT_EVERY_TICKS = 20        # 20 * 15 s = 5 min
+
+    @property
+    def _state(self) -> VoiceState:
+        return self._state_value
+
+    @_state.setter
+    def _state(self, value: VoiceState) -> None:
+        if value is not self._state_value:
+            self._state_since = time.monotonic()
+        self._state_value = value
 
     @property
     def supports_streaming(self) -> bool:
@@ -455,6 +501,11 @@ class VoiceChannel(BaseChannel):
             blocksize=BLOCK_SIZE,
         )
         self._stream.start()
+        now = time.monotonic()
+        self._stream_opened_at = now
+        self._last_callback_at = now
+        self._last_signal_at = now
+        self._watchdog_task = asyncio.create_task(self._watchdog_loop())
         logger.info("Voice: listening for wake words: {}", ", ".join(self.config.wake_words))
 
     async def stop(self) -> None:
@@ -462,6 +513,14 @@ class VoiceChannel(BaseChannel):
         self._running = False
         self._clear_interaction()
         self._state = VoiceState.STOPPED
+
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except (asyncio.CancelledError, Exception):  # noqa: B014 - shutdown must not raise
+                pass
+            self._watchdog_task = None
 
         if self._stream:
             try:
@@ -629,8 +688,137 @@ class VoiceChannel(BaseChannel):
     # Audio callback (runs in PortAudio C thread)
     # ------------------------------------------------------------------
 
+    async def _guarded(self, label: str, coro: Any) -> None:
+        """Run a state-changing coroutine; never leave the channel un-listening.
+
+        These coroutines are dispatched with ``run_coroutine_threadsafe`` from
+        the audio/STT callback threads, so an exception used to be dropped
+        silently -- and if it happened between ``state = PLAYING`` and
+        ``state = RECOGNIZING`` the microphone was discarded forever.
+        """
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Voice: {} failed: {} - resetting to LISTENING", label, exc)
+            self._clear_interaction()
+            if self._stt:
+                try:
+                    self._stt.reset()
+                except Exception as reset_exc:
+                    logger.debug("Voice: STT reset after failure failed: {}", reset_exc)
+            self._state = VoiceState.LISTENING
+
+    async def _watchdog_loop(self) -> None:
+        """Keep wake-word detection alive for days (see the health section)."""
+        while self._running:
+            await asyncio.sleep(self._WATCHDOG_INTERVAL)
+            try:
+                await self._watchdog_tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # the watchdog itself must never die
+                logger.warning("Voice: watchdog tick failed: {}", exc)
+
+    async def _watchdog_tick(self) -> None:
+        now = time.monotonic()
+        state = self._state
+        callback_age = now - self._last_callback_at if self._last_callback_at else 0.0
+        signal_age = now - self._last_signal_at if self._last_signal_at else 0.0
+        stream_age = now - self._stream_opened_at if self._stream_opened_at else 0.0
+        state_age = now - self._state_since
+
+        self._watchdog_ticks += 1
+        if self._watchdog_ticks % self._HEARTBEAT_EVERY_TICKS == 0:
+            logger.info(
+                "Voice: heartbeat state={} callback_age={:.1f}s signal_age={:.0f}s stream_age={:.1f}h",
+                state,
+                callback_age,
+                signal_age,
+                stream_age / 3600.0,
+            )
+
+        # A state that never resolves would silently disable the microphone.
+        if (
+            state not in (VoiceState.LISTENING, VoiceState.STOPPED)
+            and state_age > self._STATE_STUCK_SECONDS
+        ):
+            logger.warning(
+                "Voice: state {} stuck for {:.0f}s - forcing LISTENING", state, state_age
+            )
+            self._clear_interaction()
+            if self._stt:
+                try:
+                    self._stt.reset()
+                except Exception as exc:
+                    logger.debug("Voice: STT reset during recovery failed: {}", exc)
+            self._state = VoiceState.LISTENING
+            return
+
+        reason = None
+        if callback_age > self._CALLBACK_STALL_SECONDS:
+            reason = f"no audio callback for {callback_age:.0f}s"
+        elif state == VoiceState.LISTENING:
+            # Back off when reconnecting keeps landing on silence: that is a
+            # muted or switched-off microphone, not a wedged stream.
+            window = self._DIGITAL_SILENCE_SECONDS * (2 ** min(self._silent_recycles, 3))
+            if signal_age > window:
+                reason = f"digital silence for {signal_age / 60:.0f} min"
+        if reason is None and stream_age > self._STREAM_MAX_AGE_SECONDS:
+            reason = f"stream is {stream_age / 3600:.1f}h old"
+
+        if reason and now - self._last_recycle_at > self._RECYCLE_COOLDOWN_SECONDS:
+            if reason.startswith("digital silence"):
+                self._silent_recycles += 1
+            logger.warning("Voice: reopening input stream ({})", reason)
+            self._reopen_input_stream()
+
+    def _reopen_input_stream(self) -> None:
+        """Recreate the input stream without disturbing KWS/STT state.
+
+        The wake-word detector is independent of the stream object, so this is
+        a sub-second gap in listening rather than a restart of the pipeline.
+        """
+        import sounddevice as sd
+
+        device = _resolve_device(self.config.input_device, "input")
+        try:
+            if self._stream is not None:
+                try:
+                    self._stream.stop()
+                    self._stream.close()
+                except Exception as exc:
+                    logger.debug("Voice: closing the old input stream failed: {}", exc)
+                self._stream = None
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="float32",
+                device=device,
+                callback=self._audio_callback,
+                blocksize=BLOCK_SIZE,
+            )
+            self._stream.start()
+        except Exception as exc:
+            logger.warning("Voice: reopening the input stream failed: {}", exc)
+            self._stream = None
+            return
+        now = time.monotonic()
+        self._stream_opened_at = now
+        self._last_callback_at = now
+        self._last_signal_at = now
+        self._last_recycle_at = now
+        logger.info("Voice: input stream reopened; wake-word detection resumed")
+
     def _audio_callback(self, indata: np.ndarray, _frames: int, _time: Any, status: Any) -> None:
         """Route audio to KWS or STT based on current state."""
+        now = time.monotonic()
+        self._last_callback_at = now
+        # Peak without importing numpy here: this runs on every 100 ms block.
+        if indata.size and max(abs(float(indata.max())), abs(float(indata.min()))) > 1e-6:
+            self._last_signal_at = now
+            self._silent_recycles = 0
         if status:
             logger.debug("Voice: audio status: {}", status)
 
@@ -649,7 +837,9 @@ class VoiceChannel(BaseChannel):
         if keyword:
             logger.info("Voice: wake word detected '{}'", keyword)
             if self._loop and self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(self._on_wake(keyword), self._loop)
+                asyncio.run_coroutine_threadsafe(
+                    self._guarded("wake handling", self._on_wake(keyword)), self._loop
+                )
 
     def _stt_feed(self, indata: np.ndarray) -> None:
         """Feed audio to STT with VAD-based silence detection."""
@@ -680,7 +870,9 @@ class VoiceChannel(BaseChannel):
             )
             logger.info("Voice: STT silence timeout ({:.0f}s)", timeout)
             if self._loop and self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(self._on_timeout(), self._loop)
+                asyncio.run_coroutine_threadsafe(
+                    self._guarded("dialogue timeout", self._on_timeout()), self._loop
+                )
 
     # ------------------------------------------------------------------
     # Async event handlers
@@ -743,7 +935,10 @@ class VoiceChannel(BaseChannel):
     def _on_sentence_end(self, text: str, generation: int) -> None:
         """STT callback: final sentence received. Bridge to asyncio."""
         if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._handle_query(text, generation), self._loop)
+            asyncio.run_coroutine_threadsafe(
+                self._guarded("query handling", self._handle_query(text, generation)),
+                self._loop,
+            )
 
     async def _handle_query(self, text: str, generation: int) -> None:
         """Process recognized speech: check exit commands, publish to bus."""
