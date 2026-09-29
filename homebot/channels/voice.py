@@ -345,6 +345,8 @@ class VoiceChannel(BaseChannel):
         self._stream_opened_at = 0.0   # for the periodic proactive recycle
         self._last_recycle_at = 0.0
         self._silent_recycles = 0
+        self._reopen_failures = 0
+        self._recycle_cooldown = self._RECYCLE_COOLDOWN_SECONDS
         self._watchdog_ticks = 0
         self._watchdog_task: asyncio.Task | None = None
 
@@ -370,6 +372,7 @@ class VoiceChannel(BaseChannel):
     _STREAM_MAX_AGE_SECONDS = 6 * 3600.0
     _STATE_STUCK_SECONDS = 90.0
     _RECYCLE_COOLDOWN_SECONDS = 120.0
+    _MAX_RECYCLE_COOLDOWN_SECONDS = 300.0   # a missing device must not spin
     _HEARTBEAT_EVERY_TICKS = 20        # 20 * 15 s = 5 min
 
     @property
@@ -768,7 +771,7 @@ class VoiceChannel(BaseChannel):
         if reason is None and stream_age > self._STREAM_MAX_AGE_SECONDS:
             reason = f"stream is {stream_age / 3600:.1f}h old"
 
-        if reason and now - self._last_recycle_at > self._RECYCLE_COOLDOWN_SECONDS:
+        if reason and now - self._last_recycle_at > self._recycle_cooldown:
             if reason.startswith("digital silence"):
                 self._silent_recycles += 1
             logger.warning("Voice: reopening input stream ({})", reason)
@@ -783,6 +786,10 @@ class VoiceChannel(BaseChannel):
         import sounddevice as sd
 
         device = _resolve_device(self.config.input_device, "input")
+        # The cooldown applies even when the attempt fails: a device that has
+        # been unplugged must not turn the watchdog into a 15-second retry loop.
+        now = time.monotonic()
+        self._last_recycle_at = now
         try:
             if self._stream is not None:
                 try:
@@ -801,10 +808,21 @@ class VoiceChannel(BaseChannel):
             )
             self._stream.start()
         except Exception as exc:
-            logger.warning("Voice: reopening the input stream failed: {}", exc)
+            self._reopen_failures += 1
+            self._recycle_cooldown = min(
+                self._WATCHDOG_INTERVAL * (2 ** min(self._reopen_failures, 5)),
+                self._MAX_RECYCLE_COOLDOWN_SECONDS,
+            )
+            logger.warning(
+                "Voice: reopening the input stream failed (attempt {}): {} - next try in {:.0f}s",
+                self._reopen_failures,
+                exc,
+                self._recycle_cooldown,
+            )
             self._stream = None
             return
-        now = time.monotonic()
+        self._reopen_failures = 0
+        self._recycle_cooldown = self._RECYCLE_COOLDOWN_SECONDS
         self._stream_opened_at = now
         self._last_callback_at = now
         self._last_signal_at = now

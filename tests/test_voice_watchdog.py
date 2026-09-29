@@ -91,6 +91,35 @@ class VoiceWatchdogTest(unittest.IsolatedAsyncioTestCase):
 
         reopen.assert_called_once()
 
+    async def test_failed_reopen_backs_off_instead_of_spinning(self) -> None:
+        """An unplugged device must not turn the watchdog into a retry loop."""
+        channel = self.make_channel()
+        channel._last_callback_at = time.monotonic() - 60
+
+        with patch("sounddevice.InputStream", side_effect=OSError("Insufficient memory")):
+            channel._reopen_input_stream()
+            first = channel._recycle_cooldown
+            channel._last_recycle_at = 0.0
+            channel._reopen_input_stream()
+            second = channel._recycle_cooldown
+
+        self.assertEqual(channel._reopen_failures, 2)
+        self.assertGreater(second, first)
+        self.assertLessEqual(second, channel._MAX_RECYCLE_COOLDOWN_SECONDS)
+
+    async def test_cooldown_blocks_an_immediate_second_attempt(self) -> None:
+        channel = self.make_channel()
+        channel._last_callback_at = time.monotonic() - 60
+
+        with patch("sounddevice.InputStream", side_effect=OSError("boom")):
+            await channel._watchdog_tick()  # fails, arms the cooldown
+        self.assertEqual(channel._reopen_failures, 1)
+
+        channel._last_callback_at = time.monotonic() - 60  # still stalled
+        with patch.object(channel, "_reopen_input_stream") as reopen:
+            await channel._watchdog_tick()
+        reopen.assert_not_called()
+
 
 class GuardedCoroutineTest(unittest.IsolatedAsyncioTestCase):
     def make_channel(self) -> VoiceChannel:
