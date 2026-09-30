@@ -25,15 +25,41 @@ python <脚本路径> "周杰伦 晴天"
 
 ### 播放
 
-用户说“播放”、“放”或“来一首”时：
+用户说“播放”、“放”或“来一首”时，严格按这个顺序走。每一步失败都按后面「判定与回复」的表**直接给用户
+明确结论**，不要继续摸索。
 
-1. 调 `/discover/search` 搜歌，取第一条结果的 `songMid`、歌名与歌手。
-2. 用 `browser` 工具 `open` `https://y.qq.com/n/ryqq_v2/songDetail/<songMid>`，传 `timeout_seconds=5`，记录返回的 `page_id`。
-3. 用 `browser` 工具 `wait` 等待 `.data__actions a.mod_btn_green` 达到 `enabled`。这是歌曲信息区域唯一的播放按钮，不要猜测或尝试其它选择器。
-4. 用 `browser` 工具 `click` 点击 `.data__actions a.mod_btn_green`。
-5. 用 `browser` 工具 `open` `https://y.qq.com/n/ryqq_v2/player`，传 `timeout_seconds=5`，接管点击后弹出的播放器页面并记录它的 `page_id`。
-6. 在播放器页面用 `browser` 工具 `wait` 等待 `.btn_big_play--pause` 达到 `visible`。该状态表示播放器已进入播放状态。
-7. 仅在 `.btn_big_play--pause` 可见后回复“正在播放：歌名 - 歌手”。如果点击成功但未出现该状态，回复“歌曲页面已打开并尝试播放，但未确认播放”，并说明工具返回的登录、版权、网络或页面状态原因。不要将 `click` 的 `ok` 当作播放成功，也不要用详情页中的 `audio` 或 `video` 判断 QQ 音乐播放状态。
+1. **搜索**：调 `/discover/search`，取第一条结果的 `songMid`、歌名与歌手。
+2. **打开歌曲页**：`browser` `open` `https://y.qq.com/n/ryqq_v2/songDetail/<songMid>`，
+   `timeout_seconds=10`，记录 `page_id`。
+3. **先确认登录**（关键，别跳过）：`browser` `inspect` 该页面的 `body`。
+   如果文本里出现「登录」字样（页面右上角会显示“登录”），说明 Homebot 专用 Chrome 的登录态已失效 →
+   **立刻结束**并按下面的表回复，不要再往下走。
+4. **等播放按钮**：`browser` `wait` `.data__actions a.mod_btn_green` 到 `enabled`，`timeout_seconds=15`。
+5. **点击播放**：`browser` `click` `.data__actions a.mod_btn_green`。
+6. **打开播放器页**：`browser` `open` `https://y.qq.com/n/ryqq_v2/player`，`timeout_seconds=10`，记录 `page_id`。
+7. **确认播放**：`browser` `wait` `.btn_big_play--pause` 到 `visible`，`timeout_seconds=15`。
+
+### 判定与回复（必须照做，不能沉默）
+
+| 情况 | 你要回复的内容 |
+|---|---|
+| 第 7 步成功（按钮变成“暂停”） | 「正在播放：<歌名> - <歌手>」 |
+| 第 3 步发现「登录」 | 「需要先登录 QQ 音乐：在 Homebot 的 Chrome 窗口里登录一次就行，登录状态会保存在里面，之后就能正常播放了。」然后**结束** |
+| 第 4 步超时，且页面是空壳（标题形如 `- - QQ音乐…`、正文出现“加载中”） | 「歌曲页没有加载出来，像是网络问题，稍后再试一次。」然后**结束** |
+| 第 5 步点了，但第 7 步没进入播放态 | 「页面打开了但没能开始播放，可能是版权或会员限制。」然后**结束** |
+| 其它任何失败 | 「播放遇到问题，暂时放不了。」然后**结束** |
+
+### 硬性限制（防止卡住）
+
+- 整个播放阶段最多走 **两轮**（第 2~7 步），第二轮仍失败就按上表分类回复并结束。
+- **只允许**使用这三个选择器：`.data__actions a.mod_btn_green`、`.btn_big_play--pause`、`body`。
+- **禁止**用 `inspect` 去试探别的选择器“找按钮”：登录失效或页面没加载时它们根本不存在，
+  只会让用户干等好几分钟。
+
+### 声音从哪里出来（排障用）
+
+浏览器播放走的是 **Windows 默认播放设备**，不是 homebot 配置里的 `outputDevice`（两者可以不同）。
+如果用户说“显示在播放但没声音”，提示他检查 Windows 的默认输出设备是不是那台音箱。
 
 浏览器使用 Homebot 专用的持久 Google Chrome profile。第一次使用或登录失效时，请让用户在该窗口中完成 QQ 音乐登录；不得尝试绕过登录、版权、地区、会员或付费限制。可以通过全局 `tools.browser.sessionRefresh` 配置定期访问 QQ 音乐以降低闲置过期概率，但服务端仍可能撤销 Session。
 
