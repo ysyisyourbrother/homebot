@@ -370,7 +370,10 @@ class VoiceChannel(BaseChannel):
     _CALLBACK_STALL_SECONDS = 5.0
     _DIGITAL_SILENCE_SECONDS = 300.0   # 5 min of *exact* zeros is not a room
     _STREAM_MAX_AGE_SECONDS = 6 * 3600.0
-    _STATE_STUCK_SECONDS = 90.0
+    _STATE_STUCK_SECONDS = 90.0        # e.g. RECOGNIZING that never resolves
+    # THINKING/PLAYING legitimately last minutes (a browser task or a long
+    # reply), so they get a much larger budget before being forced back.
+    _LONG_TASK_STUCK_SECONDS = 300.0
     _RECYCLE_COOLDOWN_SECONDS = 120.0
     _MAX_RECYCLE_COOLDOWN_SECONDS = 300.0   # a missing device must not spin
     _HEARTBEAT_EVERY_TICKS = 20        # 20 * 15 s = 5 min
@@ -743,12 +746,17 @@ class VoiceChannel(BaseChannel):
             )
 
         # A state that never resolves would silently disable the microphone.
-        if (
-            state not in (VoiceState.LISTENING, VoiceState.STOPPED)
-            and state_age > self._STATE_STUCK_SECONDS
-        ):
+        limit = (
+            self._LONG_TASK_STUCK_SECONDS
+            if state in (VoiceState.THINKING, VoiceState.PLAYING)
+            else self._STATE_STUCK_SECONDS
+        )
+        if state not in (VoiceState.LISTENING, VoiceState.STOPPED) and state_age > limit:
             logger.warning(
-                "Voice: state {} stuck for {:.0f}s - forcing LISTENING", state, state_age
+                "Voice: state {} stuck for {:.0f}s (limit {:.0f}s) - forcing LISTENING",
+                state,
+                state_age,
+                limit,
             )
             self._clear_interaction()
             if self._stt:

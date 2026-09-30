@@ -29,13 +29,34 @@ class VoiceWatchdogTest(unittest.IsolatedAsyncioTestCase):
     async def test_stuck_state_is_forced_back_to_listening(self) -> None:
         channel = self.make_channel()
         channel._state = VoiceState.PLAYING
-        channel._state_since = time.monotonic() - (channel._STATE_STUCK_SECONDS + 10)
+        channel._state_since = time.monotonic() - (channel._LONG_TASK_STUCK_SECONDS + 10)
 
         with patch.object(channel, "_reopen_input_stream") as reopen:
             await channel._watchdog_tick()
 
         self.assertEqual(channel._state, VoiceState.LISTENING)
         reopen.assert_not_called()
+
+    async def test_long_but_healthy_task_is_not_interrupted(self) -> None:
+        """A browser task or a long reply may legitimately run for minutes."""
+        channel = self.make_channel()
+        channel._state = VoiceState.THINKING
+        channel._state_since = time.monotonic() - 104  # the false positive of 2026-09-30
+
+        with patch.object(channel, "_reopen_input_stream") as reopen:
+            await channel._watchdog_tick()
+
+        self.assertEqual(channel._state, VoiceState.THINKING)
+        reopen.assert_not_called()
+
+    async def test_recognizing_still_recovers_quickly(self) -> None:
+        channel = self.make_channel()
+        channel._state = VoiceState.RECOGNIZING
+        channel._state_since = time.monotonic() - (channel._STATE_STUCK_SECONDS + 10)
+
+        await channel._watchdog_tick()
+
+        self.assertEqual(channel._state, VoiceState.LISTENING)
 
     async def test_missing_callbacks_reopen_the_stream(self) -> None:
         channel = self.make_channel()
