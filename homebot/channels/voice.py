@@ -10,6 +10,8 @@ Runs alongside Telegram / Feishu / CLI in gateway mode.
 from __future__ import annotations
 
 import asyncio
+import os
+import queue
 import re
 import threading
 import time
@@ -37,6 +39,51 @@ BLOCK_SIZE = 1600  # 100ms @ 16kHz
 # Path to package assets (keywords, audio files)
 _ASSETS_DIR = Path(__file__).resolve().parent.parent / "voice" / "assets"
 _MODEL_NAME = "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20"
+
+# Wake-clip debugging: every wake word detection saves a short recording
+# (context before + a little after) so false triggers can be listened to
+# instead of guessed at.  Rolling window, newest few only, local files under
+# <voice_dir>/wake_clips/.  Set HOMEBOT_WAKE_CLIPS=0 to switch it off.
+_WAKE_CLIP_ENABLED = os.environ.get("HOMEBOT_WAKE_CLIPS", "1").lower() not in (
+    "0",
+    "off",
+    "no",
+    "false",
+)
+_WAKE_CLIP_KEEP = int(os.environ.get("HOMEBOT_WAKE_CLIP_KEEP", "3"))
+_WAKE_CLIP_PRE_BLOCKS = 20   # ~2 s of context before the wake word
+_WAKE_CLIP_POST_BLOCKS = 10  # ~1 s after it
+
+
+def _write_wav(path: Path, samples: Any, rate: int = 16000) -> None:
+    """Write mono float samples as 16-bit PCM."""
+    import numpy as np
+    import wave
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = (np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0) * 32767.0).astype(
+        np.int16
+    )
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(data.tobytes())
+
+
+def _prune_wake_clips(directory: Path, keep: int) -> list[Path]:
+    """Delete all but the newest *keep* clips; returns the removed paths."""
+    if keep <= 0:
+        return []
+    clips = sorted(directory.glob("wake-*.wav"))
+    removed = []
+    for stale in clips[:-keep] if len(clips) > keep else []:
+        try:
+            stale.unlink()
+            removed.append(stale)
+        except OSError:
+            pass
+    return removed
 SPEAKER_MODEL_NAME = "3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx"
 _LEGACY_SPEAKER_MODEL_PATH = _ASSETS_DIR / "model" / SPEAKER_MODEL_NAME
 
@@ -350,6 +397,13 @@ class VoiceChannel(BaseChannel):
         self._watchdog_ticks = 0
         self._watchdog_task: asyncio.Task | None = None
 
+        # Wake-clip capture (see _WAKE_CLIP_ENABLED above)
+        self._wake_clip_dir: Path | None = None
+        self._wake_ring: list[Any] = []
+        self._wake_capture: dict[str, Any] | None = None
+        self._wake_clip_queue: queue.Queue = queue.Queue()
+        self._wake_clip_thread: threading.Thread | None = None
+
     # ------------------------------------------------------------------
     # Audio pipeline health
     # ------------------------------------------------------------------
@@ -512,6 +566,15 @@ class VoiceChannel(BaseChannel):
         self._last_callback_at = now
         self._last_signal_at = now
         self._watchdog_task = asyncio.create_task(self._watchdog_loop())
+
+        if _WAKE_CLIP_ENABLED:
+            self._wake_clip_dir = _resolve_voice_dir(self.config) / "wake_clips"
+            self._wake_clip_dir.mkdir(parents=True, exist_ok=True)
+            self._wake_clip_thread = threading.Thread(
+                target=self._wake_clip_writer, name="homebot-wake-clips", daemon=True
+            )
+            self._wake_clip_thread.start()
+            logger.info("Voice: wake clips -> {} (keep {})", self._wake_clip_dir, _WAKE_CLIP_KEEP)
         logger.info("Voice: listening for wake words: {}", ", ".join(self.config.wake_words))
 
     async def stop(self) -> None:
@@ -519,6 +582,10 @@ class VoiceChannel(BaseChannel):
         self._running = False
         self._clear_interaction()
         self._state = VoiceState.STOPPED
+
+        if self._wake_clip_thread is not None:
+            self._wake_clip_queue.put(None)
+            self._wake_clip_thread = None
 
         if self._watchdog_task is not None:
             self._watchdog_task.cancel()
@@ -845,6 +912,19 @@ class VoiceChannel(BaseChannel):
         if indata.size and max(abs(float(indata.max())), abs(float(indata.min()))) > 1e-6:
             self._last_signal_at = now
             self._silent_recycles = 0
+
+        # Wake-clip capture: keep a short pre-roll, then finish the recording a
+        # second after a detection.  Still cheap enough for the audio thread.
+        if self._wake_clip_dir is not None:
+            block = (indata[:, 0] if indata.ndim > 1 else indata).copy()
+            self._wake_ring.append(block)
+            if len(self._wake_ring) > _WAKE_CLIP_PRE_BLOCKS:
+                del self._wake_ring[: len(self._wake_ring) - _WAKE_CLIP_PRE_BLOCKS]
+            if self._wake_capture is not None:
+                self._wake_capture["blocks"].append(block)
+                self._wake_capture["remaining"] -= 1
+                if self._wake_capture["remaining"] <= 0:
+                    self._queue_wake_clip()
         if status:
             logger.debug("Voice: audio status: {}", status)
 
@@ -862,10 +942,56 @@ class VoiceChannel(BaseChannel):
         keyword = self._kws.detect(samples)
         if keyword:
             logger.info("Voice: wake word detected '{}'", keyword)
+            self._start_wake_capture(keyword)
             if self._loop and self._loop.is_running():
                 asyncio.run_coroutine_threadsafe(
                     self._guarded("wake handling", self._on_wake(keyword)), self._loop
                 )
+
+    def _start_wake_capture(self, keyword: str) -> None:
+        """Begin recording a wake clip: pre-roll already buffered + 1 s more."""
+        if self._wake_clip_dir is None or self._wake_capture is not None:
+            return
+        self._wake_capture = {
+            "keyword": keyword,
+            "blocks": list(self._wake_ring),
+            "remaining": _WAKE_CLIP_POST_BLOCKS,
+        }
+
+    def _queue_wake_clip(self) -> None:
+        """Hand the finished recording to the writer thread (audio thread safe)."""
+        capture, self._wake_capture = self._wake_capture, None
+        if not capture or self._wake_clip_dir is None:
+            return
+        blocks = capture["blocks"]
+        if not blocks:
+            return
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        self._wake_clip_queue.put(
+            (self._wake_clip_dir / f"wake-{stamp}.wav", blocks, capture["keyword"])
+        )
+
+    def _wake_clip_writer(self) -> None:
+        """Write wake clips off the audio thread and keep only the newest few."""
+        import numpy as np
+
+        while True:
+            item = self._wake_clip_queue.get()
+            if item is None:
+                return
+            path, blocks, keyword = item
+            try:
+                _write_wav(path, np.concatenate(blocks))
+                removed = _prune_wake_clips(path.parent, _WAKE_CLIP_KEEP)
+                logger.info(
+                    "Voice: wake clip saved for '{}': {} ({:.1f}s){}",
+                    keyword,
+                    path.name,
+                    sum(len(b) for b in blocks) / SAMPLE_RATE,
+                    f"; removed {len(removed)} old clip(s)" if removed else "",
+                )
+            except Exception as exc:
+                logger.warning("Voice: saving the wake clip failed: {}", exc)
 
     def _stt_feed(self, indata: np.ndarray) -> None:
         """Feed audio to STT with VAD-based silence detection."""
