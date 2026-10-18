@@ -26,6 +26,7 @@ Homebot is a locally deployable personal AI agent designed for practical home au
 - **Natural voice interaction** with custom wake words, speaker verification, streaming speech recognition, and text-to-speech.
 - **Multi-channel conversations** through Feishu, Telegram, and local voice input. Multiple channels can run in parallel with one shared Agent.
 - **Flexible model providers** with support for OpenAI-compatible services, including DeepSeek, OpenRouter, Qwen, and Zhipu.
+- **Built-in DeepSeek web search** for real-time, source-backed answers, reusing the active DeepSeek provider credentials without a second search API key.
 - **Smart-home skills** for tasks such as controlling Xiaomi Mi Home devices, playing music, checking weather, and searching Xiaohongshu.
 - **Local-first deployment** that can run on an existing computer with a clear, modular architecture for personal customization.
 - **Extensible tools and skills** for adding new integrations without changing the core conversation flow.

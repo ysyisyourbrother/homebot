@@ -25,7 +25,10 @@ features:
     details: 兼容 DeepSeek、OpenRouter、通义千问、智谱等主流模型服务，按需选择合适的 AI 能力。
   - icon: 🏠
     title: 家庭工具与技能
-    details: 控制米家设备、播放音乐、搜索小红书内容等，围绕家庭生活持续扩展专属能力。
+    details: 控制米家设备、播放音乐、搜索网页与小红书内容等，围绕家庭生活持续扩展专属能力。
+  - icon: 🌐
+    title: 实时联网搜索
+    details: 基于 DeepSeek 官方 Search API，为新闻、价格、文档和来源核实提供实时网页结果。
   - icon: 🧩
     title: 轻量 DIY 架构
     details: 模块清晰、代码轻量，方便按自己的需求改造，构建更多垂直领域的 Agent Bot。
