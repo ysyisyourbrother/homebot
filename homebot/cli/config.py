@@ -1177,10 +1177,12 @@ def _configure_web_search(config: Config) -> None:
     val = input(f"  Web Search (yes/no) [{cur}]: ").strip().lower()
     if val in ("yes", "no"):
         search.enable = val == "yes"
-    print("  Provider: Tavily")
-    val = input(f"  Tavily API Key {_show_current(search.api_key)}: ").strip()
-    if val:
-        search.api_key = val
+    search.provider = "deepseek"
+    print("  Provider: DeepSeek Search (reuses the active DeepSeek API key)")
+    cur = "yes" if search.need_content else "no"
+    val = input(f"  Include full page content (yes/no) [{cur}]: ").strip().lower()
+    if val in ("yes", "no"):
+        search.need_content = val == "yes"
 
 
 def _configure_exec(config: Config) -> None:
@@ -1281,7 +1283,11 @@ def _show_summary(config: Config) -> None:
     web_search = config.tools.web_search
     search_status = "no"
     if web_search.enable:
-        search_status = f"yes ({web_search.provider}, {'configured' if web_search.api_key else 'API key missing'})"
+        deepseek_key = config.providers.deepseek.api_key
+        search_status = (
+            f"yes ({web_search.provider}, "
+            f"{'configured' if deepseek_key else 'DeepSeek API key missing'})"
+        )
     print(
         f"  Tools: web fetch={'yes' if config.tools.web.enable else 'no'}, "
         f"web search={search_status}, "

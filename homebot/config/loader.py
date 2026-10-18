@@ -136,4 +136,12 @@ def _migrate_config(data: dict) -> dict:
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
 
+    # Web Search is DeepSeek-only. Drop the former Tavily key and provider.
+    for search_key in ("webSearch", "web_search"):
+        search_cfg = tools.get(search_key)
+        if isinstance(search_cfg, dict):
+            search_cfg.pop("apiKey", None)
+            search_cfg.pop("api_key", None)
+            search_cfg["provider"] = "deepseek"
+
     return data

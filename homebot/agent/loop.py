@@ -278,12 +278,27 @@ class AgentLoop:
             )
         if self.web_config.enable:
             self.tools.register(WebFetchTool(proxy=self.web_config.proxy))
-        if self.web_search_config.enable and self.web_search_config.api_key:
-            provider = create_web_search_provider(
-                self.web_search_config.provider,
-                self.web_search_config.api_key,
-            )
-            self.tools.register(WebSearchTool(provider))
+        if self.web_search_config.enable:
+            search_api_key = self.provider.api_key
+            search_api_base = self.provider.api_base
+            provider_spec = getattr(self.provider, "_spec", None)
+            if provider_spec is None or provider_spec.name != "deepseek":
+                logger.warning(
+                    "Web Search is enabled, but the active model provider is not DeepSeek; "
+                    "the search tool will not be registered."
+                )
+            elif not search_api_key:
+                logger.warning(
+                    "Web Search is enabled, but the active DeepSeek provider has no API key."
+                )
+            else:
+                provider = create_web_search_provider(
+                    self.web_search_config.provider,
+                    search_api_key,
+                    api_base=search_api_base,
+                    need_content=self.web_search_config.need_content,
+                )
+                self.tools.register(WebSearchTool(provider))
         if self.browser_config.enable:
             self.tools.register(
                 BrowserTool(

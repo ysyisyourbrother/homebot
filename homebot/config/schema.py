@@ -101,8 +101,8 @@ class WebSearchConfig(Base):
     """Web search tool configuration."""
 
     enable: bool = False
-    provider: Literal["tavily"] = "tavily"
-    api_key: str | None = None
+    provider: Literal["deepseek"] = "deepseek"
+    need_content: bool = False
 
 
 class ExecToolConfig(Base):

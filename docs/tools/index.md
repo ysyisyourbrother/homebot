@@ -5,7 +5,7 @@ homebot 内置了以下 Agent Tools，它们是 LLM 与外部世界交互的「�
 | Tool | 用途 | 需要额外配置 |
 |------|------|-------------|
 | **Browser** | Chrome 浏览器自动化（打开页面、点击、等待、检查） | Playwright + Chrome |
-| **Web Search** | 互联网搜索 | Tavily API Key |
+| **Web Search** | DeepSeek 互联网搜索 | DeepSeek API Key |
 | **Shell** | 执行 Shell 命令 | 无 |
 | **Filesystem** | 文件读写、目录操作 | 无 (沙箱限制) |
 | **Web Fetch** | 抓取网页内容并转 Markdown | 无 |
@@ -21,7 +21,7 @@ python -m homebot config
 在主菜单选择 **[4] Tools Settings** 后，会进入工具菜单。选择具体工具即可单独修改它的配置，完成后选择 **[0] Back** 返回；不需要每次重新填写其他工具的配置。
 
 - **Web Fetch**：启用或停用网页抓取。
-- **Web Search**：启用或停用，并配置 Tavily API Key。详见 [Web Search 网页搜索](./web-search)。
+- **Web Search**：启用或停用，并设置是否返回完整正文；复用 DeepSeek API Key。详见 [Web Search 网页搜索](./web-search)。
 - **Shell Exec**：启用或停用 Shell 命令执行。
 - **Browser**：配置启用状态、Chrome 路径、独立资料目录、Profile 和 Session 刷新。详见 [Browser 浏览器](./browser)。
 
