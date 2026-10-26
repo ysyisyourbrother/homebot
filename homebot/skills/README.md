@@ -54,5 +54,6 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 |-------|-------------|
 | `weather` | Get weather info using wttr.in and Open-Meteo |
 | `skill-creator` | Create new skills |
+| `home-cooking` | Persistent cooking mode with recipes, conversation history, and exit summaries |
 | `qqmusic` | QQ Music — search, recommendations, charts, AI playlists, listening reports |
 | `xiaohongshu` | Search Xiaohongshu notes and ask 点点 through OpenCLI Browser Bridge |

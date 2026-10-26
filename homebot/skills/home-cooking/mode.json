@@ -1,0 +1,5 @@
+{
+  "id": "cooking",
+  "display_name": "做饭模式",
+  "entrypoint": "mode.py:CookingMode"
+}

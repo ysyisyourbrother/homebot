@@ -19,6 +19,7 @@ from homebot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRun
 from homebot.agent.skills import BUILTIN_SKILLS_DIR
 from homebot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from homebot.agent.tools.message import MessageTool
+from homebot.agent.tools.mode import SwitchModeTool
 from homebot.agent.tools.registry import ToolRegistry
 from homebot.agent.tools.search import GlobTool, GrepTool
 from homebot.agent.tools.shell import ExecTool
@@ -29,6 +30,7 @@ from homebot.bus.events import InboundMessage, OutboundMessage
 from homebot.bus.queue import MessageBus
 from homebot.command import CommandContext, CommandRouter, register_builtin_commands
 from homebot.config.schema import AgentDefaults
+from homebot.modes.manager import ModeManager
 from homebot.providers.base import LLMProvider
 from homebot.session.manager import Session, SessionManager
 from homebot.utils.helpers import image_placeholder_text
@@ -193,6 +195,7 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
+        mode_manager: ModeManager | None = None,
     ):
         from homebot.config.schema import BrowserConfig, ExecToolConfig, ToolsConfig, WebSearchConfig, WebToolsConfig
 
@@ -229,6 +232,7 @@ class AgentLoop:
 
         self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
         self.sessions = session_manager or SessionManager(workspace)
+        self.mode_manager = mode_manager or ModeManager(workspace, timezone=timezone)
         self.tools = ToolRegistry()
         self.runner = AgentRunner(provider)
         self._unified_session = unified_session
@@ -276,13 +280,20 @@ class AgentLoop:
                     allowed_env_keys=self.exec_config.allowed_env_keys,
                 )
             )
+        provider_spec = getattr(self.provider, "_spec", None)
+        is_deepseek = provider_spec is not None and provider_spec.name == "deepseek"
         if self.web_config.enable:
-            self.tools.register(WebFetchTool(proxy=self.web_config.proxy))
+            self.tools.register(
+                WebFetchTool(
+                    proxy=self.web_config.proxy,
+                    deepseek_api_key=self.provider.api_key if is_deepseek else None,
+                    deepseek_api_base=self.provider.api_base if is_deepseek else None,
+                )
+            )
         if self.web_search_config.enable:
             search_api_key = self.provider.api_key
             search_api_base = self.provider.api_base
-            provider_spec = getattr(self.provider, "_spec", None)
-            if provider_spec is None or provider_spec.name != "deepseek":
+            if not is_deepseek:
                 logger.warning(
                     "Web Search is enabled, but the active model provider is not DeepSeek; "
                     "the search tool will not be registered."
@@ -310,12 +321,22 @@ class AgentLoop:
                 )
             )
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+        self.tools.register(SwitchModeTool(self.mode_manager))
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def _set_tool_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        raw_user_text: str | None = None,
+    ) -> None:
         """Update context for all tools that need routing info."""
         if tool := self.tools.get("message"):
             if hasattr(tool, "set_context"):
                 tool.set_context(channel, chat_id, *([message_id] if message_id else []))
+        if tool := self.tools.get("switch_mode"):
+            if isinstance(tool, SwitchModeTool):
+                tool.set_context(channel, chat_id, raw_user_text)
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -325,6 +346,18 @@ class AgentLoop:
         from homebot.utils.helpers import strip_think
 
         return strip_think(text) or None
+
+    @staticmethod
+    def _mode_assistant_text(content: str, channel: str) -> str:
+        """Return the user-visible reply text for a mode transcript."""
+        if channel == "voice":
+            try:
+                payload = json.loads(content)
+            except json.JSONDecodeError:
+                return content
+            if isinstance(payload, dict) and isinstance(payload.get("reply"), str):
+                return payload["reply"]
+        return content
 
     @staticmethod
     def _tool_hint(tool_calls: list) -> str:
@@ -705,12 +738,28 @@ class AgentLoop:
         if result := await self.commands.dispatch(ctx):
             return result
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        await self.mode_manager.expire_due()
+        speaker_id = str(msg.metadata.get("member_id") or "unknown")
+        mode_prompt = await self.mode_manager.prompt_context(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            speaker_id=speaker_id,
+        )
+        self._set_tool_context(
+            msg.channel,
+            msg.chat_id,
+            msg.metadata.get("message_id"),
+            raw,
+        )
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
-        history = session.get_history(max_messages=0)
+        history = (
+            mode_prompt.history
+            if mode_prompt is not None
+            else session.get_history(max_messages=0)
+        )
 
         initial_messages = self.context.build_messages(
             history=history,
@@ -718,7 +767,17 @@ class AgentLoop:
             media=msg.media if msg.media else None,
             channel=msg.channel,
             chat_id=msg.chat_id,
-            member_id=msg.metadata.get("member_id"),
+            member_id=speaker_id,
+            mode_system_prompt=(
+                mode_prompt.system_prompt if mode_prompt is not None else None
+            ),
+            mode_context=(
+                mode_prompt.runtime_context if mode_prompt is not None else None
+            ),
+            exclude_skills=(
+                {mode_prompt.skill_name} if mode_prompt is not None else None
+            ),
+            include_profile=mode_prompt is None,
         )
 
         async def _bus_progress(
@@ -786,6 +845,18 @@ class AgentLoop:
 
         if final_content is None or not final_content.strip():
             final_content = EMPTY_FINAL_RESPONSE_MESSAGE
+
+        try:
+            await self.mode_manager.record_turn(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                speaker_id=speaker_id,
+                user=msg.content,
+                assistant=self._mode_assistant_text(final_content, msg.channel),
+                media=media_paths,
+            )
+        except Exception:
+            logger.exception("Failed to record active mode turn")
 
         # Skip the already-persisted user message when saving the turn
         save_skip = 1 + len(history) + (1 if user_persisted_early else 0)

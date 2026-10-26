@@ -4,7 +4,9 @@ Python 解释器：`{{ python_path }}`（技能脚本与 `python` 命令都用�
 
 ## 工作区
 你的工作区位于：{{ workspace_path }}
+{% if profile_path %}
 - 当前用户档案：{{ profile_path }}（用户要求时用 `edit_file` 更新）
+{% endif %}
 - 自定义 skill 的路径以“技能”清单中各技能给出的绝对路径为准；不要自行拼接或替换路径。
 
 ## 核心原则

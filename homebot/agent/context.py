@@ -28,14 +28,21 @@ class ContextBuilder:
         skill_names: list[str] | None = None,
         channel: str | None = None,
         member_id: str | None = None,
+        mode_system_prompt: str | None = None,
+        exclude_skills: set[str] | None = None,
+        include_profile: bool = True,
     ) -> str:
         """Build the system prompt from identity, member profile, and skills."""
-        profile_path = self._profile_path(member_id)
+        profile_path = self._profile_path(member_id) if include_profile else None
         parts = [self._get_identity(channel=channel, profile_path=profile_path)]
 
-        bootstrap = self._load_bootstrap_files(profile_path)
-        if bootstrap:
-            parts.append(bootstrap)
+        if profile_path is not None:
+            bootstrap = self._load_bootstrap_files(profile_path)
+            if bootstrap:
+                parts.append(bootstrap)
+
+        if mode_system_prompt:
+            parts.append(mode_system_prompt)
 
         always_skills = self.skills.get_always_skills()
         if always_skills:
@@ -43,7 +50,8 @@ class ContextBuilder:
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
-        skills_summary = self.skills.build_skills_summary(exclude=set(always_skills))
+        excluded = set(always_skills) | set(exclude_skills or ())
+        skills_summary = self.skills.build_skills_summary(exclude=excluded)
         if skills_summary:
             parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
@@ -69,6 +77,7 @@ class ContextBuilder:
     def _build_runtime_context(
         channel: str | None, chat_id: str | None, timezone: str | None = None,
         session_summary: str | None = None,
+        mode_context: str | None = None,
     ) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
         lines = [f"Current Time: {current_time_str(timezone)}"]
@@ -76,6 +85,8 @@ class ContextBuilder:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
         if session_summary:
             lines += ["", "[Resumed Session]", session_summary]
+        if mode_context:
+            lines += ["", mode_context]
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines) + "\n" + ContextBuilder._RUNTIME_CONTEXT_END
 
     @staticmethod
@@ -115,9 +126,19 @@ class ContextBuilder:
         current_role: str = "user",
         session_summary: str | None = None,
         member_id: str | None = None,
+        mode_system_prompt: str | None = None,
+        mode_context: str | None = None,
+        exclude_skills: set[str] | None = None,
+        include_profile: bool = True,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
-        runtime_ctx = self._build_runtime_context(channel, chat_id, self.timezone, session_summary=session_summary)
+        runtime_ctx = self._build_runtime_context(
+            channel,
+            chat_id,
+            self.timezone,
+            session_summary=session_summary,
+            mode_context=mode_context,
+        )
         user_content = self._build_user_content(current_message, media)
 
         # Merge runtime context and user content into a single user message
@@ -127,7 +148,17 @@ class ContextBuilder:
         else:
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
         messages = [
-            {"role": "system", "content": self.build_system_prompt(skill_names, channel=channel, member_id=member_id)},
+            {
+                "role": "system",
+                "content": self.build_system_prompt(
+                    skill_names,
+                    channel=channel,
+                    member_id=member_id,
+                    mode_system_prompt=mode_system_prompt,
+                    exclude_skills=exclude_skills,
+                    include_profile=include_profile,
+                ),
+            },
             *history,
         ]
         if messages[-1].get("role") == current_role:

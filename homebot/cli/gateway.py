@@ -99,6 +99,8 @@ def run(config: Config, *, port: int | None = None) -> None:
     from homebot.cron.browser_refresh import register_browser_refresh
     from homebot.cron.service import CronService
     from homebot.cron.types import CronJob
+    from homebot.modes.cron import register_mode_expiry
+    from homebot.modes.manager import ModeManager
     from homebot.session.manager import SessionManager
 
     gateway_port = port if port is not None else config.gateway.port
@@ -108,6 +110,10 @@ def run(config: Config, *, port: int | None = None) -> None:
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
+    mode_manager = ModeManager(
+        config.workspace_path,
+        timezone=config.agents.defaults.timezone,
+    )
 
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
     cron = CronService(cron_store_path, bus=bus)
@@ -134,6 +140,7 @@ def run(config: Config, *, port: int | None = None) -> None:
         channels_config=config.channels,
         timezone=config.agents.defaults.timezone,
         unified_session=config.agents.defaults.unified_session,
+        mode_manager=mode_manager,
     )
 
     async def on_cron_job(job: CronJob) -> str | None:
@@ -173,6 +180,7 @@ def run(config: Config, *, port: int | None = None) -> None:
         return response
 
     cron.on_job = on_cron_job
+    register_mode_expiry(cron, mode_manager)
 
     browser_tool = agent.tools.get("browser")
     if isinstance(browser_tool, BrowserTool):

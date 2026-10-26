@@ -73,10 +73,11 @@ Agent 调用搜索时可以指定：
 
 ## 搜索与抓取的分工
 
-Search 和 Fetch 是两个独立接口，Homebot 当前只把 Search 接入 `web_search`：
+Search 和 Fetch 是两个独立接口，分别接入不同的工具：
 
 - `web_search`：按问题查找多个候选网页，返回标题、链接、摘要、发布时间和权威性。
-- `web_fetch`：已有明确 URL，需要读取页面全文时使用。
+- `web_fetch`：已有明确 URL，需要读取页面全文时使用。优先调用 DeepSeek Fetch，失败后回退到
+  Jina Reader 和本地 readability。
 
 默认使用 DeepSeek 返回的 `summary`，通常已经足够回答问题和附带来源。只有需要核对长正文、
 表格或页面细节时，才启用 `need_content` 或继续调用 `web_fetch`。这样可以减少上下文占用和

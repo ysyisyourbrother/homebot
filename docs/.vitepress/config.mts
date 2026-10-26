@@ -58,6 +58,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { text: "Skills 总览", link: "/skills/index.html" },
+            { text: "做饭模式", link: "/skills/home-cooking.html" },
             { text: "QQ Music 音乐", link: "/skills/qqmusic.html" },
             { text: "小红书搜索", link: "/skills/xiaohongshu.html" },
             { text: "米家智能家居", link: "/skills/mijia.html" },
@@ -90,6 +91,7 @@ export default defineConfig({
           collapsed: true,
           items: [
             { text: "架构总览", link: "/architecture/index.html" },
+            { text: "运行模式", link: "/architecture/modes.html" },
             { text: "跨平台支持（macOS / Windows）", link: "/architecture/platform-support.html" },
           ],
         },

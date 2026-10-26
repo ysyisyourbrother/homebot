@@ -68,6 +68,7 @@ include = ["homebot*"]
 [tool.setuptools.package-data]
 homebot = [
     "skills/**/*.md",
+    "skills/**/*.json",
     "skills/**/*.py",
     "templates/**/*.md",
     "voice/assets/audio/*.wav",

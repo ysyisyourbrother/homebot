@@ -7,5 +7,6 @@ Agent 读的是 `homebot/skills/README.md`、`homebot/templates/agent/*.md` 和�
 
 ## 目录
 
+- [运行模式](./modes) —— 显式模式切换、独立上下文、Skill 注册、历史归档与跨日退出。
 - [跨平台支持：macOS 与 Windows 如何区分](./platform-support) —— 平台能力层、
   共用与分离的边界、部署差异、新增平台相关功能的检查清单。
