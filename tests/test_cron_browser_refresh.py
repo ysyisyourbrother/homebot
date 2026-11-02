@@ -118,7 +118,7 @@ class CronSystemJobTest(unittest.IsolatedAsyncioTestCase):
             browser.refresh_sessions = AsyncMock()
 
             with patch("homebot.cron.service._now_ms", return_value=1000):
-                register_browser_refresh(service, browser, ["https://y.qq.com/"], 72)
+                register_browser_refresh(service, browser, ["https://www.xiaohongshu.com/"], 72)
 
             jobs = service.list_jobs()
             self.assertEqual(len(jobs), 1)
@@ -126,7 +126,7 @@ class CronSystemJobTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(jobs[0].state.next_run_at_ms, 259201000)
 
             await service.run_job(jobs[0].id, force=True)
-            browser.refresh_sessions.assert_awaited_once_with(["https://y.qq.com/"])
+            browser.refresh_sessions.assert_awaited_once_with(["https://www.xiaohongshu.com/"])
 
     async def test_empty_browser_refresh_config_still_claims_existing_event(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

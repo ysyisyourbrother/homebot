@@ -28,8 +28,7 @@ command in it has to be platform-neutral:
 - Prefer forward slashes in relative paths; they work on all three platforms.
 - Anything that truly differs per platform belongs in a script, not in the
   prose: SKILL.md says "run `scripts/xxx.py`" and the script handles quoting,
-  encoding and path conventions itself. `skills/qqmusic/scripts/search.py` is
-  the reference example.
+  encoding and path conventions itself.
 - If a whole skill only makes sense on one platform, gate it with frontmatter
   instead of writing "on Windows … / on macOS …" into the body:
 
@@ -55,5 +54,4 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `weather` | Get weather info using wttr.in and Open-Meteo |
 | `skill-creator` | Create new skills |
 | `home-cooking` | Persistent cooking mode with recipes, conversation history, and exit summaries |
-| `qqmusic` | QQ Music — search, recommendations, charts, AI playlists, listening reports |
 | `xiaohongshu` | Search Xiaohongshu notes and ask 点点 through OpenCLI Browser Bridge |

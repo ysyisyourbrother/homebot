@@ -74,7 +74,7 @@ class VoiceAudioDevicesCliTest(unittest.TestCase):
             "",       # Browser executable path (keep default)
             "",       # User Data Directory (keep default)
             "",       # Browser profile (keep default "Homebot")
-            "https://y.qq.com/, https://www.xiaohongshu.com/",  # Session refresh URLs
+            "https://www.xiaohongshu.com/, https://example.com/",  # Session refresh URLs
             "48",     # Session refresh interval hours
             "0",      # 返回上级菜单
         ])
@@ -88,13 +88,13 @@ class VoiceAudioDevicesCliTest(unittest.TestCase):
         self.assertEqual(config.tools.browser.profile, "Homebot")
         self.assertEqual(
             config.tools.browser.session_refresh.urls,
-            ["https://y.qq.com/", "https://www.xiaohongshu.com/"],
+            ["https://www.xiaohongshu.com/", "https://example.com/"],
         )
         self.assertEqual(config.tools.browser.session_refresh.interval_hours, 48)
 
     def test_clears_browser_session_refresh_urls(self) -> None:
         config = Config()
-        config.tools.browser.session_refresh.urls = ["https://y.qq.com/"]
+        config.tools.browser.session_refresh.urls = ["https://www.xiaohongshu.com/"]
         answers = iter([
             "4",     # 工具菜单 -> Browser
             "",      # Browser enable (keep)

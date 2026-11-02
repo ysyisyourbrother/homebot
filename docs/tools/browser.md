@@ -16,7 +16,7 @@ Browser Tool 需要一个本机安装的 Google Chrome（或任何 Chromium 内�
 
 这个窗口与日常 Chrome 完全隔离：Homebot 不会读取、启动或关闭日常 Chrome，Cookie、登录状态、扩展和浏览器设置也不会相互影响。
 
-在需要登录 QQ 音乐、小红书等网站时，请始终在该专用窗口中完成登录；后续启动会复用保存的 Session。
+在需要登录小红书等网站时，请始终在该专用窗口中完成登录；后续启动会复用保存的 Session。
 
 ## 配置浏览器
 
@@ -42,7 +42,7 @@ python -m homebot config
 
 4. 在 Profile 选择中输入或保留 `Homebot`，创建 Homebot 专用的 Chrome Profile。
 
-建议保留这个独立目录和 Profile。首次需要登录 QQ 音乐、小红书等网站时，Homebot 会打开专用浏览器窗口；请在该窗口中完成登录。之后，登录状态会保存在 Homebot 的资料目录中，与日常浏览器互不影响。
+建议保留这个独立目录和 Profile。首次需要登录小红书等网站时，Homebot 会打开专用浏览器窗口；请在该窗口中完成登录。之后，登录状态会保存在 Homebot 的资料目录中，与日常浏览器互不影响。
 
 ::: warning 注意
 不要将日常 Chrome 的 User Data Directory 填入这里。日常 Chrome 运行时可能占用该目录，且混用资料会让个人浏览数据、登录状态与自动化任务相互干扰。
@@ -57,7 +57,7 @@ python -m homebot config
 - `Session Refresh URLs`：以英文逗号分隔需要刷新的网址。例如：
 
   ```text
-  https://www.xiaohongshu.com, https://www.qqmusic.com/
+  https://www.xiaohongshu.com/
   ```
 
   输入 `none` 可清除已设置的网址。
@@ -102,7 +102,7 @@ python -m homebot config
 
 配置完成后，直接在对话中告诉 homebot 你的需求即可。例如：
 
-> 帮我在 QQ 音乐搜索周杰伦的晴天
+> 帮我打开小红书并搜索附近的咖啡店
 
 homebot 会使用配置好的专用浏览器完成操作。
 

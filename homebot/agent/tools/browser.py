@@ -357,7 +357,7 @@ class BrowserTool(Tool):
     ) -> None:
         """Navigate, retrying the transient errors Chromium reports on first try.
 
-        y.qq.com's player page reliably fails the first navigation with
+        Some player pages reliably fail the first navigation with
         ``net::ERR_HTTP2_PROTOCOL_ERROR`` here and succeeds on the retry, so
         retrying inside the tool saves every caller from special-casing it.
         """

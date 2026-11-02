@@ -59,7 +59,6 @@ export default defineConfig({
           items: [
             { text: "Skills 总览", link: "/skills/index.html" },
             { text: "做饭模式", link: "/skills/home-cooking.html" },
-            { text: "QQ Music 音乐", link: "/skills/qqmusic.html" },
             { text: "小红书搜索", link: "/skills/xiaohongshu.html" },
             { text: "米家智能家居", link: "/skills/mijia.html" },
             { text: "闹钟提醒", link: "/skills/alarm.html" },
